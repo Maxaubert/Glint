@@ -19,6 +19,10 @@ pub struct Config {
     pub hdr_capture: bool,
     /// Snip as soon as the mouse is released, instead of waiting for Enter or a double-click.
     pub capture_on_release: bool,
+    /// Play a short shutter sound when a snip is taken.
+    pub capture_sound: bool,
+    /// Flash a frame around the area that was snipped.
+    pub capture_frame: bool,
 }
 
 impl Default for Config {
@@ -30,6 +34,8 @@ impl Default for Config {
             print_screen: false,
             hdr_capture: false,
             capture_on_release: false,
+            capture_sound: true,
+            capture_frame: true,
         }
     }
 }

@@ -585,6 +585,13 @@ fn finish(image: Image, rect: Rect, monitor: Monitor, app: Option<String>) {
         }
     });
     let c = config();
+    // Feedback first, so it lines up with the moment of the snip. Tests stay silent.
+    if c.capture_sound && !test_dir_set() {
+        crate::feedback::play_sound();
+    }
+    if c.capture_frame {
+        crate::feedback::flash(&rect, monitor.dpi);
+    }
     toast::show(
         image,
         monitor,
@@ -594,6 +601,10 @@ fn finish(image: Image, rect: Rect, monitor: Monitor, app: Option<String>) {
             app,
         },
     );
+}
+
+fn test_dir_set() -> bool {
+    std::env::var_os("GLINT_TEST_DIR").is_some()
 }
 
 fn spawn_editor(args: &[String]) {

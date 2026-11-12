@@ -14,7 +14,7 @@ pub const PALETTE: [[u8; 4]; 6] = [
 ];
 
 /// Stroke widths in screen (logical) pixels; multiplied by the display scale.
-pub const SIZES: [f32; 5] = [2.0, 3.0, 5.0, 8.0, 12.0];
+pub const SIZES: [f32; 7] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 26.0];
 
 #[derive(Clone, PartialEq)]
 struct Snapshot {
