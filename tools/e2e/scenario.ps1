@@ -15,6 +15,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -50,6 +51,9 @@ function Wait-Until([scriptblock] $cond, [int] $ms = 5000) {
   while ($sw.ElapsedMilliseconds -lt $ms) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 25 }
   return $false
 }
+# The editor's window (its title carries the image size, so it is found by process).
+function EdWin($p) { $p.Refresh(); $p.MainWindowHandle }
+function Title([IntPtr] $h) { $sb = New-Object System.Text.StringBuilder 256; [W]::GetWindowText($h, $sb, 256) | Out-Null; $sb.ToString() }
 function Png-Size([string] $path) {
   $b = [IO.File]::ReadAllBytes($path)
   $w = ([int]$b[16] -shl 24) -bor ([int]$b[17] -shl 16) -bor ([int]$b[18] -shl 8) -bor [int]$b[19]
@@ -172,11 +176,12 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::White); $g.Dispose()
   $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'e2e.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'e2e.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'editor window opens' $okWin
+  if ($okWin) { $t = Title (EdWin $ed); Check 'title shows the image size' ($t -like 'e2e.png (800 * 500) - Glint') $t }
   if ($okWin) {
     Start-Sleep -Milliseconds 800
-    $hw = [W]::FindWindow([NullString]::Value, 'e2e.png - Glint')
+    $hw = EdWin $ed
     $rc = New-Object W+RECT; [W]::GetClientRect($hw, [ref]$rc) | Out-Null
     $s = [W]::GetDpiForWindow($hw) / 96.0
     $cw = $rc.R; $ch = $rc.B
@@ -259,11 +264,11 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   $g = [System.Drawing.Graphics]::FromImage($big); $g.Clear([System.Drawing.Color]::FromArgb(30, 60, 90)); $g.Dispose()
   $big.Save($bigPng, [System.Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $bigPng, '--name', 'big.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'big.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'big image: editor opens' $okWin
   if ($okWin) {
     Start-Sleep -Milliseconds 1200
-    $hw = [W]::FindWindow([NullString]::Value, 'big.png - Glint')
+    $hw = EdWin $ed
     $wr = New-Object W+RECT; [W]::GetWindowRect($hw, [ref]$wr) | Out-Null
     $sw = [W]::GetSystemMetrics(0); $sh = [W]::GetSystemMetrics(1)
     Check 'big image: window fits on the screen' (($wr.R - $wr.L) -le $sw -and ($wr.B - $wr.T) -le $sh) "window $($wr.R - $wr.L)x$($wr.B - $wr.T), screen ${sw}x${sh}"
@@ -290,11 +295,11 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   #    and it crops by itself after a pause (no Enter).
   Remove-Item "$work\out\editor-export.png", "$work\out\editor-window.png" -ErrorAction SilentlyContinue
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'crop.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'crop.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'crop: editor opens' $okWin
   if ($okWin) {
     Start-Sleep -Milliseconds 800
-    $hw = [W]::FindWindow([NullString]::Value, 'crop.png - Glint')
+    $hw = EdWin $ed
     Key 0x43                       # C = crop
     [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt 790 490)) | Out-Null
     [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt 798 498)) | Out-Null

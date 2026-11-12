@@ -326,7 +326,9 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
     // Only results of actions (copied, saved, errors); no tool hints (owner, 2026-11-12).
     ui.set_status(app.status.clone().into());
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
-    ui.set_window_title(format!("{}{} - Glint", app.name, dot).into());
+    // The image size sits next to the name (owner, 2026-11-12): "shot.png (2524 x 1259) - Glint".
+    let (w, h) = app.ed.view_size();
+    ui.set_window_title(format!("{} ({w} \u{00D7} {h}){dot} - Glint", app.name).into());
     match &app.ed.text_edit {
         Some(t) => {
             let v = app.ed.view();

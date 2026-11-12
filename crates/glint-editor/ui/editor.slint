@@ -565,14 +565,6 @@ export component EditorWindow inherits Window {
                     }
                 }
 
-                // Image size, small and dim in the bottom-right corner (no status bar).
-                Text {
-                    x: parent.width - self.width - 12px;
-                    y: parent.height - self.height - 6px;
-                    text: root.img-w + " \u{00D7} " + root.img-h;
-                    color: #9a9aa6b0;
-                    font-size: 11px;
-                }
                 // Results of actions (copied, saved, errors), bottom-left, gone after a few seconds.
                 Text {
                     x: 12px;
