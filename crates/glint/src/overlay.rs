@@ -448,35 +448,94 @@ impl Overlay {
     }
 
     fn paint_hint(&self, dpi: u32) {
+        use gfx::MouseButton::{Left, Middle, Right};
         let mon = local_rect(self.monitor().rect, &self.vb);
-        let font = Font::ui(px(12, dpi));
-        let text = if self.sel.is_some() && self.capture_on_release {
-            "Let go to snip   \u{00B7}   Esc cancel"
+        // What each input does: an icon (a mouse with the button lit, or a key cap) and a label.
+        let mut items: Vec<(Hint, &str)> = Vec::new();
+        if self.sel.is_some() && !self.capture_on_release {
+            items.push((Hint::Key("Enter"), "Snip"));
+            items.push((Hint::Mouse(Left), "Adjust with the handles"));
         } else if self.sel.is_some() {
-            "Enter to snip   \u{00B7}   Drag handles or arrows to adjust   \u{00B7}   Esc cancel"
-        } else if self.last.is_some() {
-            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Middle-click last area   \u{00B7}   Esc cancel"
+            items.push((Hint::Mouse(Left), "Let go to snip"));
         } else {
-            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Esc cancel"
+            items.push((Hint::Mouse(Left), "Drag to snip"));
+            items.push((Hint::Mouse(Right), "Full screen"));
+            if self.last.is_some() {
+                items.push((Hint::Mouse(Middle), "Last area"));
+            }
+        }
+        items.push((Hint::Key("Esc"), "Cancel"));
+
+        let dc = self.back.dc;
+        let font = Font::ui(px(12, dpi));
+        let key_font = Font::ui_bold(px(10, dpi));
+        let (mw, mh) = gfx::mouse_icon_size(dpi);
+        let key_h = px(18, dpi);
+        let icon_w = |h: &Hint| match h {
+            Hint::Mouse(_) => mw,
+            Hint::Key(k) => gfx::text_size(dc, &key_font, k).0 + px(12, dpi),
         };
-        let (tw, _) = gfx::text_size(self.back.dc, &font, text);
-        let w = tw + px(16, dpi);
+        let (pad, icon_gap, group_gap) = (px(12, dpi), px(7, dpi), px(18, dpi));
+        let widths: Vec<(i32, i32)> = items
+            .iter()
+            .map(|(h, label)| (icon_w(h), gfx::text_size(dc, &font, label).0))
+            .collect();
+        let w = 2 * pad
+            + widths.iter().map(|(a, b)| a + icon_gap + b).sum::<i32>()
+            + group_gap * (items.len() as i32 - 1);
+        let h = px(32, dpi);
         let x = mon.x + (mon.w - w) / 2;
         let y = mon.y + px(16, dpi);
         // Skip the hint when the cursor or selection is right under it.
-        let hint = Rect::new(x, y, w, px(30, dpi));
         let (cx, cy) = (self.cur.0 - self.vb.x, self.cur.1 - self.vb.y);
         let near = Rect::new(
-            hint.x - px(20, dpi),
-            hint.y - px(20, dpi),
-            hint.w + px(40, dpi),
-            hint.h + px(40, dpi),
+            x - px(20, dpi),
+            y - px(20, dpi),
+            w + px(40, dpi),
+            h + px(40, dpi),
         );
         if near.contains(cx, cy) {
             return;
         }
-        self.pill(text, &font, x, y, dpi, &mon);
+        let pill = Rect::new(x, y, w, h);
+        gfx::round_rect(
+            dc,
+            &pill,
+            px(8, dpi),
+            rgb(24, 24, 28),
+            Some(rgb(60, 60, 70)),
+        );
+        let mut at = x + pad;
+        let mid = y + h / 2;
+        for ((hint, label), (iw, tw)) in items.iter().zip(&widths) {
+            match hint {
+                Hint::Mouse(b) => gfx::mouse_icon(
+                    &self.back,
+                    at,
+                    mid - mh / 2,
+                    dpi,
+                    *b,
+                    rgb(225, 225, 232),
+                    ACCENT,
+                ),
+                Hint::Key(k) => {
+                    let r = Rect::new(at, mid - key_h / 2, *iw, key_h);
+                    gfx::round_rect(dc, &r, px(4, dpi), rgb(44, 44, 52), Some(rgb(92, 92, 104)));
+                    gfx::text(dc, &key_font, k, &r, rgb(225, 225, 232));
+                }
+            }
+            at += iw + icon_gap;
+            let r = Rect::new(at, y, *tw, h);
+            gfx::text(dc, &font, label, &r, rgb(240, 240, 245));
+            at += tw + group_gap;
+        }
     }
+}
+
+/// One input in the overlay hint.
+enum Hint {
+    Mouse(gfx::MouseButton),
+    Key(&'static str),
 }
 
 fn local_rect(r: Rect, vb: &Rect) -> Rect {

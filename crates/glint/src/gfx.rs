@@ -270,3 +270,120 @@ pub fn text(dc: HDC, font: &Font, s: &str, r: &Rect, c: COLORREF) {
 pub fn px(v: i32, dpi: u32) -> i32 {
     (v as i64 * dpi as i64 / 96) as i32
 }
+
+/// Which mouse button a hint icon lights up.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MouseButton {
+    Left,
+    Right,
+    Middle,
+}
+
+/// Size of `mouse_icon` in physical pixels.
+pub fn mouse_icon_size(dpi: u32) -> (i32, i32) {
+    (px(14, dpi), px(21, dpi))
+}
+
+/// A small mouse with one button lit in `accent`, anti-aliased, drawn straight into the pixels
+/// (GDI shapes are not anti-aliased). `(x, y)`: top-left in the Dib.
+pub fn mouse_icon(
+    dib: &Dib,
+    x: i32,
+    y: i32,
+    dpi: u32,
+    lit: MouseButton,
+    line: COLORREF,
+    accent: COLORREF,
+) {
+    unsafe {
+        let _ = GdiFlush();
+    }
+    let s = dpi as f32 / 96.0;
+    let (iw, ih) = mouse_icon_size(dpi);
+    let (w, h) = (iw as f32, ih as f32);
+    let r = w / 2.0;
+    let stroke = 1.5 * s;
+    let split = 9.0 * s; // the line between the buttons and the body
+    let gap = 0.9 * s;
+    let (cx, cy) = (w / 2.0, h / 2.0);
+    let (wheel_w, wheel_h) = (3.0 * s, 5.0 * s);
+    let wheel_cy = split * 0.52;
+    let cov = |v: f32| v.clamp(0.0, 1.0);
+    // Signed distance to a rounded box centred at (bx, by) with half sizes (hx, hy), radius rr.
+    let rbox = |fx: f32, fy: f32, bx: f32, by: f32, hx: f32, hy: f32, rr: f32| {
+        let qx = (fx - bx).abs() - (hx - rr);
+        let qy = (fy - by).abs() - (hy - rr);
+        qx.max(0.0).hypot(qy.max(0.0)) + qx.max(qy).min(0.0) - rr
+    };
+    // The Dib is BGRA; COLORREF is 0x00BBGGRR.
+    let rgb_of = |c: COLORREF| {
+        [
+            ((c.0 >> 16) & 0xff) as f32,
+            ((c.0 >> 8) & 0xff) as f32,
+            (c.0 & 0xff) as f32,
+        ]
+    };
+    let (lc, ac) = (rgb_of(line), rgb_of(accent));
+    let pixels =
+        unsafe { std::slice::from_raw_parts_mut(dib.bits, dib.w as usize * dib.h as usize * 4) };
+    for j in 0..ih {
+        for i in 0..iw {
+            let (px_, py_) = (x + i, y + j);
+            if px_ < 0 || py_ < 0 || px_ >= dib.w || py_ >= dib.h {
+                continue;
+            }
+            let (fx, fy) = (i as f32 + 0.5, j as f32 + 0.5);
+            let d = rbox(fx, fy, cx, cy, w / 2.0, h / 2.0, r);
+            let outline = cov(stroke / 2.0 - (d + stroke / 2.0).abs() + 0.5);
+            let inside = cov(-(d + stroke) + 0.5);
+            let vline = cov(stroke / 2.0 - (fx - cx).abs() + 0.5) * cov(split - fy + 0.5) * inside;
+            let hline = cov(stroke / 2.0 - (fy - split).abs() + 0.5) * inside;
+            let wheel = cov(-rbox(
+                fx,
+                fy,
+                cx,
+                wheel_cy,
+                wheel_w / 2.0,
+                wheel_h / 2.0,
+                wheel_w / 2.0,
+            ) + 0.5);
+            let upper = cov(split - stroke / 2.0 - gap - fy + 0.5);
+            let fill = match lit {
+                MouseButton::Left => inside * upper * cov(cx - stroke / 2.0 - gap - fx + 0.5),
+                MouseButton::Right => inside * upper * cov(fx - cx - stroke / 2.0 - gap + 0.5),
+                MouseButton::Middle => wheel,
+            };
+            // The wheel sits on the middle line; it gets a gap around it when it is not lit.
+            let wheel_line = if lit == MouseButton::Middle {
+                0.0
+            } else {
+                wheel
+            };
+            let ring = cov(-rbox(
+                fx,
+                fy,
+                cx,
+                wheel_cy,
+                wheel_w / 2.0 + gap,
+                wheel_h / 2.0 + gap,
+                wheel_w / 2.0 + gap,
+            ) + 0.5);
+            let lines = outline.max(hline).max(wheel_line).max(vline * (1.0 - ring));
+            let fill = if lit == MouseButton::Middle {
+                fill
+            } else {
+                fill * (1.0 - ring)
+            };
+            if lines <= 0.0 && fill <= 0.0 {
+                continue;
+            }
+            let k = ((py_ * dib.w + px_) * 4) as usize;
+            for c in 0..3 {
+                let base = pixels[k + c] as f32;
+                let v = base + (ac[c] - base) * fill;
+                let v = v + (lc[c] - v) * lines;
+                pixels[k + c] = v.round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+}

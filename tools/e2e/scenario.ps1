@@ -86,6 +86,10 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   Glint @('region')
   Check 'overlay opens' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero })
   $ov = [W]::FindWindow('GlintOverlay', [NullString]::Value)
+  if ($env:GLINT_TEST_DUMP) {      # keep the overlay as painted (the hint with mouse icons)
+    Start-Sleep -Milliseconds 300
+    Copy-Item -Force "$work\out\overlay-paint.png" "$PSScriptRoot\..\..\.e2e\overlay-hint.png" -ErrorAction SilentlyContinue
+  }
   [W]::PostMessage($ov, 0x0200, [IntPtr]0, (LParam 100 100)) | Out-Null   # WM_MOUSEMOVE
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 100 100)) | Out-Null   # WM_LBUTTONDOWN
   foreach ($i in 1..10) { [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam (100 + 30 * $i) (100 + 20 * $i))) | Out-Null }
