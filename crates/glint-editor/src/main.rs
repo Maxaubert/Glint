@@ -27,9 +27,7 @@ use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
-use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDCANCEL, IDYES, MB_ICONWARNING, MB_YESNOCANCEL,
-};
+use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING};
 
 #[derive(Default)]
 struct Args {
@@ -351,32 +349,6 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
 }
 
 /// Asks before closing with unsaved, uncopied edits. Returns true when it is fine to close.
-fn confirm_close(app: &mut App) -> bool {
-    if !app.ed.dirty {
-        return true;
-    }
-    let text: Vec<u16> =
-        "Your edits are not saved or copied.\n\nCopy the image to the clipboard before closing?"
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-    let answer = unsafe {
-        MessageBoxW(
-            hwnd(),
-            PCWSTR(text.as_ptr()),
-            windows::core::w!("Glint"),
-            MB_YESNOCANCEL | MB_ICONWARNING,
-        )
-    };
-    if answer == IDCANCEL {
-        return false;
-    }
-    if answer == IDYES {
-        return app.copy();
-    }
-    true
-}
-
 fn cursor_monitor() -> (glint_core::Rect, f32) {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{
@@ -640,18 +612,13 @@ fn main() {
     }
     {
         let weak = ui.as_weak();
+        // Closing just closes, without asking about unsaved edits (owner, 2026-11-12).
         ui.window().on_close_requested(move || {
-            let app = app_ref();
-            let ok = confirm_close(&mut app.borrow_mut());
-            if ok {
-                if let Some(ui) = weak.upgrade() {
-                    let _ = ui.hide();
-                }
-                let _ = slint::quit_event_loop();
-                CloseRequestResponse::HideWindow
-            } else {
-                CloseRequestResponse::KeepWindowShown
+            if let Some(ui) = weak.upgrade() {
+                let _ = ui.hide();
             }
+            let _ = slint::quit_event_loop();
+            CloseRequestResponse::HideWindow
         });
     }
 
@@ -722,10 +689,8 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         }
         "save" => a.save(),
         "close" => {
-            if confirm_close(a) {
-                let _ = ui.hide();
-                let _ = slint::quit_event_loop();
-            }
+            let _ = ui.hide();
+            let _ = slint::quit_event_loop();
             return false;
         }
         "copy-close" => {
