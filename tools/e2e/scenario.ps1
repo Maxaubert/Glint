@@ -121,6 +121,32 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   Check 'repeat capture written' (Wait-Until { Test-Path (Out-File-N 5) })
   if (Test-Path (Out-File-N 5)) { Check 'repeat capture size' ((Png-Size (Out-File-N 5)) -eq '100x50') (Png-Size (Out-File-N 5)) }
 
+  # 6b. Middle-click in the overlay repeats the last area (100x50).
+  Glint @('region')
+  Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero } | Out-Null
+  [W]::PostMessage([W]::FindWindow('GlintOverlay', [NullString]::Value), 0x0208, [IntPtr]0, (LParam 500 500)) | Out-Null  # WM_MBUTTONUP
+  Check 'middle-click capture written' (Wait-Until { Test-Path (Out-File-N 6) })
+  if (Test-Path (Out-File-N 6)) { Check 'middle-click repeats the last area' ((Png-Size (Out-File-N 6)) -eq '100x50') (Png-Size (Out-File-N 6)) }
+
+  # 6c. Right-click in the overlay snips the whole monitor (same size as the fullscreen command).
+  Glint @('region')
+  Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero } | Out-Null
+  $ov = [W]::FindWindow('GlintOverlay', [NullString]::Value)
+  [W]::PostMessage($ov, 0x0200, [IntPtr]0, (LParam 300 300)) | Out-Null
+  [W]::PostMessage($ov, 0x0205, [IntPtr]0, (LParam 300 300)) | Out-Null  # WM_RBUTTONUP
+  Check 'right-click capture written' (Wait-Until { Test-Path (Out-File-N 7) })
+  if ((Test-Path (Out-File-N 7)) -and (Test-Path (Out-File-N 2))) {
+    Check 'right-click snips the monitor' ((Png-Size (Out-File-N 7)) -eq (Png-Size (Out-File-N 2))) (Png-Size (Out-File-N 7))
+  }
+
+  # 6d. The hotkey (region command) a second time closes the overlay without a capture.
+  Glint @('region')
+  Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero } | Out-Null
+  Glint @('region')
+  Check 'second press closes the overlay' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -eq [IntPtr]::Zero })
+  Start-Sleep -Milliseconds 300
+  Check 'second press captures nothing' (-not (Test-Path (Out-File-N 8)))
+
   # 7. Memory after captures, once the cards are gone.
   Start-Sleep -Milliseconds 500
   $daemon.Refresh()

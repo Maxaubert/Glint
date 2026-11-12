@@ -1,6 +1,6 @@
 //! The daemon: a hidden window that owns the tray icon, the hotkeys and the capture flow.
 
-use crate::overlay::{self, Mode, Outcome};
+use crate::overlay::{self, Outcome};
 use crate::{gfx::wide, icon, log, system, toast};
 use glint_capture::windows_list;
 use glint_core::config::{parse_hotkey, Config, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
@@ -29,7 +29,6 @@ const TIMER_CONFIG: usize = 1;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Region,
-    Window,
     Fullscreen,
     FullscreenAll,
     Repeat,
@@ -44,7 +43,6 @@ impl Command {
         let mut it = s.split_whitespace();
         Some(match it.next()? {
             "region" => Command::Region,
-            "window" => Command::Window,
             "fullscreen" => Command::Fullscreen,
             "fullscreen-all" => Command::FullscreenAll,
             "repeat" => Command::Repeat,
@@ -211,7 +209,6 @@ pub fn notify(title: &str, text: &str) {
 }
 
 const ID_REGION: usize = 10;
-const ID_WINDOW: usize = 11;
 const ID_FULL: usize = 12;
 const ID_OPEN: usize = 20;
 const ID_PASTE: usize = 21;
@@ -239,7 +236,6 @@ fn show_menu(hwnd: HWND) {
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
         };
         add(ID_REGION, &label("Snip a region", &c.hotkeys.region), false);
-        add(ID_WINDOW, &label("Snip a window", &c.hotkeys.window), false);
         add(
             ID_FULL,
             &label("Snip the full screen", &c.hotkeys.fullscreen),
@@ -280,7 +276,6 @@ fn show_menu(hwnd: HWND) {
         let _ = DestroyMenu(menu);
         match id {
             ID_REGION => run_command(Command::Region),
-            ID_WINDOW => run_command(Command::Window),
             ID_FULL => run_command(Command::Fullscreen),
             ID_OPEN => run_command(Command::OpenImage),
             ID_PASTE => run_command(Command::PasteToEditor),
@@ -369,7 +364,6 @@ fn register_hotkeys(report: bool) {
     }
     let mut list = vec![
         (1, c.hotkeys.region.clone()),
-        (2, c.hotkeys.window.clone()),
         (3, c.hotkeys.fullscreen.clone()),
         (4, c.hotkeys.repeat.clone()),
     ];
@@ -411,7 +405,6 @@ fn register_hotkeys(report: bool) {
 fn hotkey_command(id: i32) -> Option<Command> {
     Some(match id {
         1 | 5 => Command::Region,
-        2 => Command::Window,
         3 => Command::Fullscreen,
         4 => Command::Repeat,
         _ => return None,
@@ -469,6 +462,10 @@ pub fn run_command(cmd: Command) {
         _ => {}
     }
     if overlay::is_open() {
+        // The hotkey a second time closes the overlay.
+        if cmd == Command::Region {
+            overlay::cancel();
+        }
         return;
     }
     let c = config();
@@ -515,15 +512,10 @@ pub fn run_command(cmd: Command) {
         finish(image, rect, monitor, app_name);
         return;
     }
-    let mode = if cmd == Command::Window {
-        Mode::Window
-    } else {
-        Mode::Region
-    };
     let started = std::time::Instant::now();
     let res = overlay::show(
         frame,
-        mode,
+        with(|a| a.last_rect).flatten(),
         c.capture_on_release,
         move |outcome| match outcome {
             Outcome::Capture {

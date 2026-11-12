@@ -3,6 +3,16 @@
 Research behind this: `C:\Users\Admin\Documents\Claude\research\glint\2026-11-12-brainstorm-and-stack.md`.
 Decisions by Max on 2026-11-12: v1 is **core only**; editor UI is **Slint**.
 
+## Changes after approval (Max, 2026-11-12)
+- One default hotkey, **Ctrl+Alt+S**, opens the overlay; pressing it again closes it. The spec's
+  Ctrl+Shift+S/W/F/R set was dropped because global hotkeys stole Save As, close-window, find and reload.
+- In the overlay: **right-click** snips the monitor under the cursor, **middle-click** repeats the last area.
+  Optional `fullscreen` and `repeat` hotkeys exist in config.toml, empty by default.
+- **Window capture is removed** (no window mode, no window hotkey, a click without a drag clears the selection).
+- HDR: GDI already gives correct colours for desktop content on this PC, so the DXGI tone-mapped path
+  is opt-in (`hdr_capture = true`), see `crates/glint-capture/src/lib.rs`.
+- The rest of 1.3 below that mentions window mode or the old hotkeys is superseded by this list.
+
 ## 1. Spec
 
 ### 1.1 Goal

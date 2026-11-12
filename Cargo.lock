@@ -431,6 +431,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "byteorder"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
+
+[[package]]
 name = "byteorder-lite"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1289,6 +1295,7 @@ dependencies = [
  "glint-capture",
  "glint-core",
  "windows",
+ "winresource",
 ]
 
 [[package]]
@@ -1303,6 +1310,7 @@ dependencies = [
 name = "glint-core"
 version = "0.1.0"
 dependencies = [
+ "ico",
  "png 0.18.1",
  "serde",
  "toml 0.8.23",
@@ -1323,6 +1331,7 @@ dependencies = [
  "tiny-skia 0.11.4",
  "toml 0.8.23",
  "windows",
+ "winresource",
 ]
 
 [[package]]
@@ -1804,6 +1813,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "ico"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d75e94d66081e4d8dcd098bd8dc5254800fea14a26389b298410158d834de167"
+dependencies = [
+ "byteorder",
+ "png 0.18.1",
 ]
 
 [[package]]
@@ -5272,6 +5291,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
 dependencies = [
  "memchr",
+]
+
+[[package]]
+name = "winresource"
+version = "0.1.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2bc6d36480b829272a5bdabf08e6dca8004761c1da7e35efef800540c66221b"
+dependencies = [
+ "toml 1.2.1+spec-1.1.0",
+ "version_check",
 ]
 
 [[package]]

@@ -37,8 +37,10 @@ impl Default for Config {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Hotkeys {
+    /// Opens the snip overlay. Press it again to cancel. In the overlay, right-click snips the
+    /// full screen and middle-click repeats the last area.
     pub region: String,
-    pub window: String,
+    /// Optional direct hotkeys (empty = off).
     pub fullscreen: String,
     pub repeat: String,
 }
@@ -46,10 +48,9 @@ pub struct Hotkeys {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
-            region: "Ctrl+Shift+S".into(),
-            window: "Ctrl+Shift+W".into(),
-            fullscreen: "Ctrl+Shift+F".into(),
-            repeat: "Ctrl+Shift+R".into(),
+            region: "Ctrl+Alt+S".into(),
+            fullscreen: String::new(),
+            repeat: String::new(),
         }
     }
 }
@@ -178,9 +179,8 @@ mod tests {
     #[test]
     fn defaults_parse() {
         let h = Hotkeys::default();
-        for s in [&h.region, &h.window, &h.fullscreen, &h.repeat] {
-            parse_hotkey(s).unwrap();
-        }
+        parse_hotkey(&h.region).unwrap();
+        assert!(h.fullscreen.is_empty() && h.repeat.is_empty());
     }
 
     #[test]
@@ -189,7 +189,7 @@ mod tests {
             toml::from_str("preview_seconds = 3\n[hotkeys]\nregion = \"PrintScreen\"\n").unwrap();
         assert_eq!(c.preview_seconds, 3);
         assert_eq!(c.hotkeys.region, "PrintScreen");
-        assert_eq!(c.hotkeys.window, "Ctrl+Shift+W");
+        assert_eq!(c.hotkeys.fullscreen, "");
     }
 
     #[test]

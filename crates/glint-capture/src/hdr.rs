@@ -6,7 +6,8 @@
 
 use crate::monitors::{rect, wide_to_string};
 use glint_core::{Image, Rect};
-use windows::core::Interface;
+use std::ffi::c_void;
+use windows::core::{s, w, Interface, GUID, HRESULT, PCSTR, PCWSTR};
 use windows::Win32::Devices::Display::{
     DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
     DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
@@ -14,9 +15,10 @@ use windows::Win32::Devices::Display::{
     DISPLAYCONFIG_SDR_WHITE_LEVEL, DISPLAYCONFIG_SOURCE_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
 };
 use windows::Win32::Foundation::HMODULE;
+use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
+    ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
     D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION,
     D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
@@ -25,9 +27,73 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_MODE_ROTATION_IDENTITY, DXGI_MODE_ROTATION_UNSPECIFIED,
 };
 use windows::Win32::Graphics::Dxgi::{
-    CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput6, IDXGIResource,
+    IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput6, IDXGIResource,
     DXGI_OUTDUPL_FRAME_INFO,
 };
+use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+// dxgi.dll and d3d11.dll are loaded only when HDR capture runs. Importing them at startup made
+// overlay tools such as RivaTuner (RTSS) treat the idle daemon as a Direct3D app and attach to it,
+// which cost about 55 MB of private memory (measured 2026-11-12).
+
+fn proc_addr(dll: PCWSTR, name: PCSTR) -> Result<unsafe extern "system" fn() -> isize, String> {
+    unsafe {
+        let h = LoadLibraryW(dll).map_err(|e| format!("LoadLibrary: {e}"))?;
+        GetProcAddress(h, name).ok_or_else(|| "GetProcAddress failed".to_string())
+    }
+}
+
+fn create_factory() -> Result<IDXGIFactory1, String> {
+    type F = unsafe extern "system" fn(*const GUID, *mut *mut c_void) -> HRESULT;
+    let f: F = unsafe { std::mem::transmute(proc_addr(w!("dxgi.dll"), s!("CreateDXGIFactory1"))?) };
+    let mut raw = std::ptr::null_mut();
+    unsafe { f(&IDXGIFactory1::IID, &mut raw) }
+        .ok()
+        .map_err(|e| e.to_string())?;
+    Ok(unsafe { IDXGIFactory1::from_raw(raw) })
+}
+
+fn create_device(
+    adapter: &IDXGIAdapter,
+    device: &mut Option<ID3D11Device>,
+    ctx: &mut Option<ID3D11DeviceContext>,
+) -> Result<(), String> {
+    type F = unsafe extern "system" fn(
+        *mut c_void,
+        D3D_DRIVER_TYPE,
+        HMODULE,
+        u32,
+        *const c_void,
+        u32,
+        u32,
+        *mut *mut c_void,
+        *mut c_void,
+        *mut *mut c_void,
+    ) -> HRESULT;
+    let f: F = unsafe { std::mem::transmute(proc_addr(w!("d3d11.dll"), s!("D3D11CreateDevice"))?) };
+    let (mut dev, mut c) = (std::ptr::null_mut(), std::ptr::null_mut());
+    unsafe {
+        f(
+            adapter.as_raw(),
+            D3D_DRIVER_TYPE_UNKNOWN,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT.0,
+            std::ptr::null(),
+            0,
+            D3D11_SDK_VERSION,
+            &mut dev,
+            std::ptr::null_mut(),
+            &mut c,
+        )
+    }
+    .ok()
+    .map_err(|e| format!("D3D11CreateDevice: {e}"))?;
+    unsafe {
+        *device = Some(ID3D11Device::from_raw(dev));
+        *ctx = Some(ID3D11DeviceContext::from_raw(c));
+    }
+    Ok(())
+}
 
 /// An output that is in HDR mode right now.
 pub struct HdrOutput {
@@ -41,7 +107,7 @@ pub struct HdrOutput {
 pub fn hdr_outputs() -> Result<Vec<HdrOutput>, String> {
     let mut out = Vec::new();
     unsafe {
-        let factory: IDXGIFactory1 = CreateDXGIFactory1().map_err(|e| e.to_string())?;
+        let factory = create_factory()?;
         let mut ai = 0;
         while let Ok(adapter) = factory.EnumAdapters1(ai) {
             ai += 1;
@@ -85,20 +151,13 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
     unsafe {
         let mut device: Option<ID3D11Device> = None;
         let mut ctx: Option<ID3D11DeviceContext> = None;
-        D3D11CreateDevice(
+        create_device(
             &o.adapter
                 .cast::<IDXGIAdapter>()
                 .map_err(|e| e.to_string())?,
-            D3D_DRIVER_TYPE_UNKNOWN,
-            HMODULE::default(),
-            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-            None,
-            D3D11_SDK_VERSION,
-            Some(&mut device),
-            None,
-            Some(&mut ctx),
-        )
-        .map_err(|e| format!("D3D11CreateDevice: {e}"))?;
+            &mut device,
+            &mut ctx,
+        )?;
         let (device, ctx) = (device.ok_or("no device")?, ctx.ok_or("no context")?);
         trace("device");
         let dup = o

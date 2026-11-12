@@ -2,3 +2,4 @@
 /.claude/targets
 /.e2e
 *.pdb
+/dist

@@ -1,2 +1,100 @@
+<div align="center">
+
+<img src="assets/glint-256.png" width="96" alt="Glint logo">
+
 # Glint
-Screenshot app with drawing, annotation and lots of extras
+
+**A fast, tiny snipping tool for Windows 11. Snip, it is on your clipboard. Click the preview to draw on it.**
+
+[![Release](https://img.shields.io/github/v/release/Maxaubert/Glint?color=8b5cf6&label=release)](https://github.com/Maxaubert/Glint/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/Maxaubert/Glint/ci.yml?branch=main&label=ci)](https://github.com/Maxaubert/Glint/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-Windows%2011-8b5cf6?logo=windows11&logoColor=white)](#install)
+[![Rust](https://img.shields.io/badge/built%20with-Rust-8b5cf6?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![License](https://img.shields.io/badge/license-MIT-8b5cf6)](LICENSE)
+
+<img src="assets/editor.png" width="760" alt="The Glint editor with an arrow and a circle drawn on a capture">
+
+</div>
+
+## Why Glint
+
+- **Under 2 MB of RAM while it waits** in the tray. The editor is a separate program that starts only
+  when you open it and frees everything when you close it.
+- **Instant.** The screen is frozen the moment you press the hotkey (about 60 ms on a 4K screen), so
+  menus and tooltips stay in the shot.
+- **Clipboard first.** Every snip is copied (PNG with transparency, plus the formats older apps need).
+  Nothing is saved unless you ask.
+
+## Features
+
+| Snip | Preview | Editor |
+|---|---|---|
+| `Ctrl+Alt+S` opens the overlay (press again to close) | Card in the bottom-right corner | Arrow (drag the middle to curve it) |
+| Drag a box, then fine-tune with handles or arrow keys | **Click** to open the editor | Ellipse for circling things, rectangle |
+| **Right-click**: the whole screen under the mouse | **Drag** it into Discord, Slack, Explorer | Highlighter that keeps text readable |
+| **Middle-click**: the same area as last time | Save with one click | Text, numbered steps, pen |
+| Magnifier with pixel position and colour | Stacks when you snip quickly | Blur and pixelate (permanent) |
+| Works across monitors with different scaling | Never steals focus | Crop, undo, copy, save PNG, JPEG or WebP |
+
+<img src="assets/overlay.png" width="600" alt="The snip overlay: dimmed screen, selected area with handles and its size">
+
+## Install
+
+Download `Glint-Setup-x64-<version>.exe` from the [latest release](https://github.com/Maxaubert/Glint/releases/latest)
+and run it. It installs for your user only (no admin rights) and starts with Windows.
+The installer is not signed yet, so SmartScreen may warn on first run.
+
+## Use
+
+| Where | Key or action | Does |
+|---|---|---|
+| Anywhere | `Ctrl+Alt+S` | Open the snip overlay |
+| Overlay | Drag, then `Enter` or double-click | Snip the box |
+| Overlay | Right-click / middle-click | Full screen / last area |
+| Overlay | Arrows, `Shift`+arrows, `Ctrl` for 10 px | Move / resize the box |
+| Overlay | `F`, `Shift+F`, `Esc` | Full screen, all screens, cancel |
+| Editor | `V A R O H P T N B X C` | Select, arrow, rectangle, ellipse, highlight, pen, text, step, blur, pixelate, crop |
+| Editor | `1` to `6`, `[` and `]` | Colour, thinner and thicker |
+| Editor | `Ctrl+Z`, `Ctrl+Y`, `Delete` | Undo, redo, delete the selected shape |
+| Editor | `Ctrl+C`, `Ctrl+S`, `Enter` | Copy, save, copy and close |
+
+Right-click the tray icon to snip the full screen, open or paste an image into the editor, use the
+Print Screen key instead, or turn off start with Windows.
+
+## Settings
+
+`%APPDATA%\Glint\config.toml` (tray menu: *Edit settings*). Saved changes apply within a few seconds.
+
+```toml
+preview_seconds = 6          # how long the preview card stays
+save_dir = 'D:\Screenshots'   # default: Pictures\Glint
+capture_on_release = false   # snip as soon as you let go of the mouse
+hdr_capture = false          # re-capture HDR screens with tone mapping (for HDR games and video)
+
+[hotkeys]
+region = "Ctrl+Alt+S"
+fullscreen = ""              # optional, for example "Ctrl+Alt+F"
+repeat = ""                  # optional, for example "Ctrl+Alt+R"
+```
+
+## Build from source
+
+```powershell
+cargo build --release                    # target\release\glint.exe and glint-editor.exe
+cargo test --workspace                   # unit tests
+pwsh tools/e2e/run.ps1 -Release          # end-to-end, on a hidden desktop
+makensis /DVERSION=0.1.0 installer\glint.nsi   # dist\Glint-Setup-x64-0.1.0.exe
+```
+
+| Crate | Role |
+|---|---|
+| `glint-core` | Geometry, images, PNG and DIB codecs, clipboard, config |
+| `glint-capture` | GDI screen capture, optional DXGI HDR tone mapping, monitor layout |
+| `glint` | The tray daemon: hotkeys, overlay, preview card (plain Win32, no UI toolkit) |
+| `glint-editor` | The editor (Slint UI, tiny-skia drawing) |
+
+Design notes and the roadmap of ideas: [docs/2026-11-12-v1-spec-and-plan.md](docs/2026-11-12-v1-spec-and-plan.md).
+
+## License
+
+[MIT](LICENSE)

@@ -1,0 +1,97 @@
+# Auto-release on every push to main.
+# - Reads the version from Cargo.toml ([workspace.package] version).
+# - REFUSES to run if release v<version> already exists: bump the version in the PR.
+# - Builds the NSIS installer, signs via SignPath when SIGNPATH_API_TOKEN is configured, publishes
+#   v<version> with GitHub-generated notes.
+# Docs-only pushes are skipped by paths-ignore.
+name: release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Read version
+        id: ver
+        shell: pwsh
+        run: |
+          $meta = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $v = ($meta.packages | Where-Object name -eq 'glint').version
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Refuse to overwrite an existing release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.ver.outputs.version }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "Release $tag already exists. Bump [workspace.package] version in Cargo.toml (patch for a fix, minor for a feature) and push again."
+            exit 1
+          }
+          exit 0
+
+      - run: cargo test --workspace
+      - run: cargo build --release --workspace
+      - name: Package installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 "/DVERSION=${{ steps.ver.outputs.version }}" installer\glint.nsi
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Optional: SignPath Foundation (free for open-source). Enrol the repo first, then add the
+      # SIGNPATH_API_TOKEN secret and the SIGNPATH_ORG_ID / SIGNPATH_PROJECT vars.
+      - name: Upload unsigned installer
+        if: env.SIGNPATH_API_TOKEN != ''
+        id: unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-installer
+          path: dist/*-Setup-*.exe
+      - name: Sign with SignPath
+        if: env.SIGNPATH_API_TOKEN != ''
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORG_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT }}
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: dist
+
+      - name: Publish release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v${{ steps.ver.outputs.version }}"
+          $asset = (Get-ChildItem dist/*-Setup-*.exe | Select-Object -First 1).FullName
+          gh release create $tag $asset --title $tag --generate-notes --latest
+          if ($env:SIGNPATH_API_TOKEN -eq "") {
+            $body = gh release view $tag --json body -q .body
+            gh release edit $tag --notes "$body`n`nThis installer is unsigned; SmartScreen will warn on first run."
+          }

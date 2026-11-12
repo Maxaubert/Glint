@@ -1,7 +1,7 @@
 //! Glint: the always-running part. Tray icon, hotkeys, capture overlay and preview card.
 //!
 //! `glint.exe` with no arguments starts the daemon (or, if it runs already, starts a region snip).
-//! `glint.exe region|window|fullscreen|fullscreen-all|repeat|open|paste|quit` sends that command.
+//! `glint.exe region|fullscreen|fullscreen-all|repeat|open|paste|quit` sends that command.
 //! `glint.exe rect X Y W H` snips that rectangle of the virtual desktop without the overlay.
 //! `glint.exe --background` starts the daemon without snipping (used by "Start with Windows").
 

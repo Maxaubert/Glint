@@ -1,10 +1,9 @@
 //! The capture overlay: one topmost window over the whole virtual desktop showing the frozen frame.
 //!
-//! Region mode: drag a box, adjust it with the handles or the arrow keys, Enter to capture.
-//! A click without a drag picks the window under the cursor. Window mode: hover and click.
+//! Drag a box, adjust it with the handles or the arrow keys, Enter to capture.
+//! Right-click captures the whole monitor under the cursor; middle-click repeats the last region.
 
 use crate::gfx::{self, px, rgb, Dib, Font};
-use glint_capture::windows_list::{self, WindowInfo};
 use glint_capture::Frame;
 use glint_core::geom::{drag_handle, hit_handle, monitor_at, virtual_bounds};
 use glint_core::{Handle, Image, Monitor, Rect};
@@ -19,12 +18,6 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 const ACCENT: windows::Win32::Foundation::COLORREF = rgb(139, 92, 246);
 const DIM: f32 = 0.55;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode {
-    Region,
-    Window,
-}
 
 /// What the overlay ended with.
 pub enum Outcome {
@@ -58,12 +51,12 @@ struct Overlay {
     dim: Dib,
     back: Dib,
     vb: Rect,
-    mode: Mode,
+    /// The previous capture, for middle-click.
+    last: Option<Rect>,
     sel: Option<Rect>,
     drag: Drag,
     moved: bool,
     cur: (i32, i32),
-    windows: Vec<WindowInfo>,
     capture_on_release: bool,
     done: Option<Outcome>,
 }
@@ -77,6 +70,18 @@ thread_local! {
 
 pub fn is_open() -> bool {
     STATE.with(|s| s.borrow().is_some())
+}
+
+/// Closes the overlay without capturing (the hotkey pressed a second time).
+pub fn cancel() {
+    STATE.with(|s| {
+        if let Ok(mut s) = s.try_borrow_mut() {
+            if let Some(o) = s.as_mut() {
+                o.finish(None);
+            }
+        }
+    });
+    close_if_done();
 }
 
 fn register() {
@@ -98,7 +103,7 @@ fn register() {
 /// Shows the overlay over `frame`. `done` runs once, after the overlay window is gone.
 pub fn show(
     frame: Frame,
-    mode: Mode,
+    last: Option<Rect>,
     capture_on_release: bool,
     done: impl FnOnce(Outcome) + 'static,
 ) -> Result<(), String> {
@@ -114,7 +119,6 @@ pub fn show(
     unsafe {
         let _ = GetCursorPos(&mut p);
     }
-    let windows = windows_list::list();
     let hwnd = unsafe {
         CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
@@ -149,12 +153,11 @@ pub fn show(
             dim,
             back,
             vb,
-            mode,
+            last,
             sel: None,
             drag: Drag::None,
             moved: false,
             cur: (p.x, p.y),
-            windows,
             capture_on_release,
             done: None,
         })
@@ -178,18 +181,9 @@ impl Overlay {
         self.monitor().dpi
     }
 
-    fn hover_window(&self) -> Option<Rect> {
-        windows_list::at(&self.windows, self.cur.0, self.cur.1)
-            .map(|w| w.rect.clamp_to(&self.vb))
-            .filter(|r| !r.is_empty())
-    }
-
     /// The rectangle that would be captured right now.
     fn target(&self) -> Option<Rect> {
-        match self.mode {
-            Mode::Region => self.sel.filter(|r| !r.is_empty()),
-            Mode::Window => self.hover_window(),
-        }
+        self.sel.filter(|r| !r.is_empty())
     }
 
     fn finish(&mut self, rect: Option<Rect>) {
@@ -225,9 +219,6 @@ impl Overlay {
         self.cur = (x, y);
         self.moved = false;
         unsafe { SetCapture(self.hwnd) };
-        if self.mode == Mode::Window {
-            return;
-        }
         let tol = px(8, self.dpi());
         self.drag = match self
             .sel
@@ -272,18 +263,10 @@ impl Overlay {
         self.cur = (x, y);
         let _ = unsafe { ReleaseCapture() };
         let drag = std::mem::replace(&mut self.drag, Drag::None);
-        match self.mode {
-            Mode::Window => {
-                let t = self.target();
-                self.finish(t);
-                return;
-            }
-            Mode::Region => {}
-        }
         if let Drag::New { .. } = drag {
             if !self.moved {
-                // A click: take the window under the cursor, or the monitor.
-                self.sel = self.hover_window().or(Some(self.monitor().rect));
+                // A click without a drag clears the selection.
+                self.sel = None;
             } else if self.capture_on_release {
                 let t = self.target();
                 self.finish(t);
@@ -306,7 +289,7 @@ impl Overlay {
         };
         if dx != 0 || dy != 0 {
             match self.sel {
-                Some(s) if self.mode == Mode::Region => {
+                Some(s) => {
                     self.sel = Some(if shift {
                         s.resize_by(dx, dy, &self.vb)
                     } else {
@@ -335,15 +318,7 @@ impl Overlay {
                     self.finish(t);
                 }
             }
-            k if k.0 == b'A' as u16 && ctrl => {
-                self.mode = Mode::Region;
-                self.sel = Some(self.monitor().rect);
-            }
-            k if k.0 == b'W' as u16 => {
-                self.mode = Mode::Window;
-                self.sel = None;
-            }
-            k if k.0 == b'R' as u16 => self.mode = Mode::Region,
+            k if k.0 == b'A' as u16 && ctrl => self.sel = Some(self.monitor().rect),
             k if k.0 == b'F' as u16 => {
                 let r = if shift { self.vb } else { self.monitor().rect };
                 self.finish(Some(r));
@@ -354,9 +329,6 @@ impl Overlay {
     }
 
     fn cursor_for(&self) -> PCWSTRCursor {
-        if self.mode == Mode::Window {
-            return IDC_HAND_;
-        }
         let h = match self.drag {
             Drag::Handle { h, .. } => Some(h),
             Drag::New { .. } => None,
@@ -409,13 +381,13 @@ impl Overlay {
                 );
             }
             gfx::frame(dc, &l, ACCENT, px(2, dpi).max(1));
-            if self.mode == Mode::Region && !matches!(self.drag, Drag::New { .. }) {
+            if !matches!(self.drag, Drag::New { .. }) {
                 self.paint_handles(&l, dpi);
             }
             self.paint_size(&l, &t, dpi);
         }
         let drawing = matches!(self.drag, Drag::New { .. } | Drag::Handle { .. });
-        if self.mode == Mode::Region && (self.sel.is_none() || drawing) {
+        if self.sel.is_none() || drawing {
             self.paint_guides(dpi);
             self.paint_loupe(dpi);
         }
@@ -586,12 +558,12 @@ impl Overlay {
     fn paint_hint(&self, dpi: u32) {
         let mon = local_rect(self.monitor().rect, &self.vb);
         let font = Font::ui(px(12, dpi));
-        let text = match (self.mode, self.sel.is_some()) {
-            (Mode::Window, _) => "Click a window   \u{00B7}   R region   \u{00B7}   F full screen   \u{00B7}   Esc cancel",
-            (Mode::Region, false) => {
-                "Drag to snip   \u{00B7}   Click for a window   \u{00B7}   W window   \u{00B7}   F full screen   \u{00B7}   Esc cancel"
-            }
-            (Mode::Region, true) => "Enter to snip   \u{00B7}   Drag handles or arrows to adjust   \u{00B7}   Esc cancel",
+        let text = if self.sel.is_some() {
+            "Enter to snip   \u{00B7}   Drag handles or arrows to adjust   \u{00B7}   Esc cancel"
+        } else if self.last.is_some() {
+            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Middle-click last area   \u{00B7}   Esc cancel"
+        } else {
+            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Esc cancel"
         };
         let (tw, _) = gfx::text_size(self.back.dc, &font, text);
         let w = tw + px(16, dpi);
@@ -618,7 +590,6 @@ fn local_rect(r: Rect, vb: &Rect) -> Rect {
 }
 
 type PCWSTRCursor = windows::core::PCWSTR;
-const IDC_HAND_: PCWSTRCursor = IDC_HAND;
 const IDC_CROSS_: PCWSTRCursor = IDC_CROSS;
 const IDC_SIZENS_: PCWSTRCursor = IDC_SIZENS;
 const IDC_SIZEWE_: PCWSTRCursor = IDC_SIZEWE;
@@ -682,19 +653,32 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             WM_LBUTTONDBLCLK => {
                 let (x, y) = o.to_virtual(lp);
                 o.cur = (x, y);
-                if o.mode == Mode::Region && o.sel.is_some_and(|s| s.contains(x, y)) {
+                if o.sel.is_some_and(|s| s.contains(x, y)) {
                     let t = o.target();
                     o.finish(t);
                 }
                 Some(LRESULT(0))
             }
             WM_RBUTTONUP => {
-                if o.sel.is_some() && o.mode == Mode::Region {
-                    o.sel = None;
-                    o.drag = Drag::None;
-                    o.invalidate();
+                let (x, y) = o.to_virtual(lp);
+                o.cur = (x, y);
+                if matches!(o.drag, Drag::None) {
+                    // Right-click: the whole monitor under the cursor.
+                    let r = o.monitor().rect;
+                    o.finish(Some(r));
                 } else {
-                    o.finish(None);
+                    // Right-click during a drag drops the drag.
+                    let _ = ReleaseCapture();
+                    o.drag = Drag::None;
+                    o.sel = None;
+                    o.invalidate();
+                }
+                Some(LRESULT(0))
+            }
+            WM_MBUTTONUP => {
+                // Middle-click: the same area as the last capture.
+                if let Some(r) = o.last.and_then(|r| r.intersect(&o.vb)) {
+                    o.finish(Some(r));
                 }
                 Some(LRESULT(0))
             }
