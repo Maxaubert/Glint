@@ -14,7 +14,12 @@ pub fn wide(s: &str) -> Vec<u16> {
 }
 
 pub fn win_rect(r: &Rect) -> RECT {
-    RECT { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() }
+    RECT {
+        left: r.x,
+        top: r.y,
+        right: r.right(),
+        bottom: r.bottom(),
+    }
 }
 
 /// A top-down 32-bit DIB selected into its own memory DC.
@@ -44,12 +49,20 @@ impl Dib {
                 ..Default::default()
             };
             let mut bits = std::ptr::null_mut();
-            let Ok(bmp) = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) else {
+            let Ok(bmp) = CreateDIBSection(Some(dc), &bmi, DIB_RGB_COLORS, &mut bits, None, 0)
+            else {
                 let _ = DeleteDC(dc);
                 return None;
             };
             let old = SelectObject(dc, bmp.into());
-            Some(Dib { dc, bmp, old, bits: bits as *mut u8, w: w.max(1), h: h.max(1) })
+            Some(Dib {
+                dc,
+                bmp,
+                old,
+                bits: bits as *mut u8,
+                w: w.max(1),
+                h: h.max(1),
+            })
         }
     }
 
@@ -57,10 +70,14 @@ impl Dib {
     pub fn from_image(img: &Image, dim: f32) -> Option<Dib> {
         let mut d = Dib::new(img.width as i32, img.height as i32)?;
         let k = (dim.clamp(0.0, 1.0) * 256.0) as u32;
-        for (o, p) in d.pixels_mut().chunks_exact_mut(4).zip(img.data.chunks_exact(4)) {
-            o[0] = (p[2] as u32 * k >> 8) as u8;
-            o[1] = (p[1] as u32 * k >> 8) as u8;
-            o[2] = (p[0] as u32 * k >> 8) as u8;
+        for (o, p) in d
+            .pixels_mut()
+            .chunks_exact_mut(4)
+            .zip(img.data.chunks_exact(4))
+        {
+            o[0] = ((p[2] as u32 * k) >> 8) as u8;
+            o[1] = ((p[1] as u32 * k) >> 8) as u8;
+            o[2] = ((p[0] as u32 * k) >> 8) as u8;
             o[3] = 255;
         }
         Some(d)
@@ -76,8 +93,19 @@ impl Dib {
 
     /// Tests only: with GLINT_TEST_DUMP set, writes what was painted to `GLINT_TEST_DIR/<name>.png`.
     pub fn dump(&self, name: &str) {
-        let (Some(_), Some(dir)) = (std::env::var_os("GLINT_TEST_DUMP"), std::env::var_os("GLINT_TEST_DIR")) else { return };
-        let img = Image::from_bgra(self.w as u32, self.h as u32, self.pixels(), self.w as usize * 4, true);
+        let (Some(_), Some(dir)) = (
+            std::env::var_os("GLINT_TEST_DUMP"),
+            std::env::var_os("GLINT_TEST_DIR"),
+        ) else {
+            return;
+        };
+        let img = Image::from_bgra(
+            self.w as u32,
+            self.h as u32,
+            self.pixels(),
+            self.w as usize * 4,
+            true,
+        );
         let path = std::path::Path::new(&dir).join(format!("{name}.png"));
         let _ = std::fs::write(path, glint_core::encode::encode_png_fast(&img));
     }
@@ -117,7 +145,12 @@ pub fn fill_alpha(dc: HDC, r: &Rect, c: COLORREF, alpha: u8) {
         px[1] = (c.0 >> 8) as u8;
         px[2] = c.0 as u8;
         px[3] = 255;
-        let bf = BLENDFUNCTION { BlendOp: AC_SRC_OVER as u8, BlendFlags: 0, SourceConstantAlpha: alpha, AlphaFormat: 0 };
+        let bf = BLENDFUNCTION {
+            BlendOp: AC_SRC_OVER as u8,
+            BlendFlags: 0,
+            SourceConstantAlpha: alpha,
+            AlphaFormat: 0,
+        };
         unsafe {
             let _ = AlphaBlend(dc, r.x, r.y, r.w, r.h, d.dc, 0, 0, 1, 1, bf);
         }
@@ -204,7 +237,12 @@ pub fn text_size(dc: HDC, font: &Font, s: &str) -> (i32, i32) {
     let mut r = RECT::default();
     unsafe {
         let old = SelectObject(dc, font.0.into());
-        DrawTextW(dc, &mut w, &mut r, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+        DrawTextW(
+            dc,
+            &mut w,
+            &mut r,
+            DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX,
+        );
         SelectObject(dc, old);
     }
     (r.right - r.left, r.bottom - r.top)
@@ -218,7 +256,12 @@ pub fn text(dc: HDC, font: &Font, s: &str, r: &Rect, c: COLORREF) {
         let old = SelectObject(dc, font.0.into());
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, c);
-        DrawTextW(dc, &mut w, &mut rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        DrawTextW(
+            dc,
+            &mut w,
+            &mut rc,
+            DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX,
+        );
         SelectObject(dc, old);
     }
 }

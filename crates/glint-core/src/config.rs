@@ -23,7 +23,14 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { hotkeys: Hotkeys::default(), save_dir: None, preview_seconds: 6, print_screen: false, hdr_capture: false, capture_on_release: false }
+        Self {
+            hotkeys: Hotkeys::default(),
+            save_dir: None,
+            preview_seconds: 6,
+            print_screen: false,
+            hdr_capture: false,
+            capture_on_release: false,
+        }
     }
 }
 
@@ -138,10 +145,31 @@ mod tests {
 
     #[test]
     fn parses_hotkeys() {
-        assert_eq!(parse_hotkey("Ctrl+Shift+S"), Ok(Hotkey { mods: MOD_CONTROL | MOD_SHIFT, vk: b'S' as u32 }));
-        assert_eq!(parse_hotkey("alt + f5"), Ok(Hotkey { mods: MOD_ALT, vk: 0x74 }));
-        assert_eq!(parse_hotkey("PrintScreen"), Ok(Hotkey { mods: 0, vk: 0x2C }));
-        assert_eq!(parse_hotkey("Win+1"), Ok(Hotkey { mods: MOD_WIN, vk: b'1' as u32 }));
+        assert_eq!(
+            parse_hotkey("Ctrl+Shift+S"),
+            Ok(Hotkey {
+                mods: MOD_CONTROL | MOD_SHIFT,
+                vk: b'S' as u32
+            })
+        );
+        assert_eq!(
+            parse_hotkey("alt + f5"),
+            Ok(Hotkey {
+                mods: MOD_ALT,
+                vk: 0x74
+            })
+        );
+        assert_eq!(
+            parse_hotkey("PrintScreen"),
+            Ok(Hotkey { mods: 0, vk: 0x2C })
+        );
+        assert_eq!(
+            parse_hotkey("Win+1"),
+            Ok(Hotkey {
+                mods: MOD_WIN,
+                vk: b'1' as u32
+            })
+        );
         assert!(parse_hotkey("Ctrl+Shift").is_err());
         assert!(parse_hotkey("Ctrl+A+B").is_err());
         assert!(parse_hotkey("Ctrl+Banana").is_err());
@@ -157,7 +185,8 @@ mod tests {
 
     #[test]
     fn partial_file_keeps_defaults() {
-        let c: Config = toml::from_str("preview_seconds = 3\n[hotkeys]\nregion = \"PrintScreen\"\n").unwrap();
+        let c: Config =
+            toml::from_str("preview_seconds = 3\n[hotkeys]\nregion = \"PrintScreen\"\n").unwrap();
         assert_eq!(c.preview_seconds, 3);
         assert_eq!(c.hotkeys.region, "PrintScreen");
         assert_eq!(c.hotkeys.window, "Ctrl+Shift+W");

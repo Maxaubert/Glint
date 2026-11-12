@@ -30,12 +30,18 @@ pub struct Frame {
 impl Frame {
     /// The virtual-desktop rectangle the image covers.
     pub fn bounds(&self) -> Rect {
-        Rect::new(self.origin.0, self.origin.1, self.image.width as i32, self.image.height as i32)
+        Rect::new(
+            self.origin.0,
+            self.origin.1,
+            self.image.width as i32,
+            self.image.height as i32,
+        )
     }
 
     /// Crops a rectangle given in virtual-desktop coordinates.
     pub fn crop_virtual(&self, r: &Rect) -> Image {
-        self.image.crop(&r.translate(-self.origin.0, -self.origin.1))
+        self.image
+            .crop(&r.translate(-self.origin.0, -self.origin.1))
     }
 }
 
@@ -49,18 +55,30 @@ pub fn capture_desktop(hdr: bool) -> Result<Frame, String> {
     let vb = virtual_bounds(&monitors);
     let mut image = gdi::capture(&vb)?;
     let mut notes = Vec::new();
-    match if hdr { hdr::hdr_outputs() } else { Ok(Vec::new()) } {
+    match if hdr {
+        hdr::hdr_outputs()
+    } else {
+        Ok(Vec::new())
+    } {
         Ok(outs) => {
             for out in outs {
                 match hdr::capture_output(&out) {
                     Ok(img) => image.blit(&img, out.rect.x - vb.x, out.rect.y - vb.y),
-                    Err(e) => notes.push(format!("HDR capture of {} failed, kept GDI copy: {e}", out.device)),
+                    Err(e) => notes.push(format!(
+                        "HDR capture of {} failed, kept GDI copy: {e}",
+                        out.device
+                    )),
                 }
             }
         }
         Err(e) => notes.push(format!("HDR check failed: {e}")),
     }
-    Ok(Frame { image, origin: (vb.x, vb.y), monitors, notes })
+    Ok(Frame {
+        image,
+        origin: (vb.x, vb.y),
+        monitors,
+        notes,
+    })
 }
 
 /// A made-up desktop (a colour gradient) with the real monitor layout. End-to-end tests use it,
@@ -74,12 +92,19 @@ pub fn synthetic_desktop() -> Frame {
         let (x, y) = (i % w, i / w);
         px.copy_from_slice(&[(x * 255 / w) as u8, (y * 255 / h) as u8, 128, 255]);
     }
-    Frame { image, origin: (vb.x, vb.y), monitors, notes: vec!["synthetic desktop".into()] }
+    Frame {
+        image,
+        origin: (vb.x, vb.y),
+        monitors,
+        notes: vec!["synthetic desktop".into()],
+    }
 }
 
 /// Turns on per-monitor DPI awareness v2 for this process (tests and tools; the apps use a manifest).
 pub fn make_dpi_aware() {
-    use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+    use windows::Win32::UI::HiDpi::{
+        SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
+    };
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 }
 
@@ -94,11 +119,17 @@ mod tests {
         let t = std::time::Instant::now();
         let f = capture_desktop(false).expect("capture");
         let ms = t.elapsed().as_millis();
-        eprintln!("captured {:?} at {:?} in {ms} ms, notes: {:?}", f.image, f.origin, f.notes);
+        eprintln!(
+            "captured {:?} at {:?} in {ms} ms, notes: {:?}",
+            f.image, f.origin, f.notes
+        );
         assert_eq!(f.bounds(), virtual_bounds(&f.monitors));
         let m = &f.monitors[0];
         let crop = f.crop_virtual(&Rect::new(m.rect.x, m.rect.y, 10, 10));
         assert_eq!((crop.width, crop.height), (10, 10));
-        assert!(crop.data.chunks_exact(4).all(|p| p[3] == 255), "GDI capture must be opaque");
+        assert!(
+            crop.data.chunks_exact(4).all(|p| p[3] == 255),
+            "GDI capture must be opaque"
+        );
     }
 }

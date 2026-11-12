@@ -2,8 +2,8 @@
 
 use glint_core::{Image, Rect};
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
-    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC,
+    SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
 };
 
 /// Copies `r` (virtual-desktop pixels) from the screen.
@@ -39,7 +39,13 @@ pub fn capture(r: &Rect) -> Result<Image, String> {
                     Ok(()) => {
                         let len = r.w as usize * r.h as usize * 4;
                         let src = std::slice::from_raw_parts(bits as *const u8, len);
-                        Ok(Image::from_bgra(r.w as u32, r.h as u32, src, r.w as usize * 4, true))
+                        Ok(Image::from_bgra(
+                            r.w as u32,
+                            r.h as u32,
+                            src,
+                            r.w as usize * 4,
+                            true,
+                        ))
                     }
                     Err(e) => Err(format!("BitBlt failed: {e}")),
                 };

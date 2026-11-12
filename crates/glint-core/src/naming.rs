@@ -16,7 +16,14 @@ pub struct Stamp {
 impl Stamp {
     pub fn now() -> Stamp {
         let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
-        Stamp { year: t.wYear, month: t.wMonth, day: t.wDay, hour: t.wHour, minute: t.wMinute, second: t.wSecond }
+        Stamp {
+            year: t.wYear,
+            month: t.wMonth,
+            day: t.wDay,
+            hour: t.wHour,
+            minute: t.wMinute,
+            second: t.wSecond,
+        }
     }
 }
 
@@ -30,7 +37,11 @@ pub fn sanitize(app: &str) -> String {
             out.push('-');
         }
     }
-    let out = out.trim_matches(['-', '.']).chars().take(40).collect::<String>();
+    let out = out
+        .trim_matches(['-', '.'])
+        .chars()
+        .take(40)
+        .collect::<String>();
     out.trim_end_matches(['-', '.']).to_string()
 }
 
@@ -56,7 +67,13 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
     }
     let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
     (2..)
-        .map(|n| dir.join(if ext.is_empty() { format!("{stem} ({n})") } else { format!("{stem} ({n}).{ext}") }))
+        .map(|n| {
+            dir.join(if ext.is_empty() {
+                format!("{stem} ({n})")
+            } else {
+                format!("{stem} ({n}).{ext}")
+            })
+        })
         .find(|p| !p.exists())
         .unwrap()
 }
@@ -65,13 +82,26 @@ pub fn unique_path(dir: &Path, name: &str) -> PathBuf {
 mod tests {
     use super::*;
 
-    const T: Stamp = Stamp { year: 2026, month: 11, day: 2, hour: 9, minute: 3, second: 5 };
+    const T: Stamp = Stamp {
+        year: 2026,
+        month: 11,
+        day: 2,
+        hour: 9,
+        minute: 3,
+        second: 5,
+    };
 
     #[test]
     fn names() {
-        assert_eq!(file_name("chrome.exe", T, "png"), "Glint_chrome_2026-11-02_09-03-05.png");
+        assert_eq!(
+            file_name("chrome.exe", T, "png"),
+            "Glint_chrome_2026-11-02_09-03-05.png"
+        );
         assert_eq!(file_name("", T, "jpg"), "Glint_2026-11-02_09-03-05.jpg");
-        assert_eq!(file_name("My App: v2/beta", T, "png"), "Glint_My-App-v2-beta_2026-11-02_09-03-05.png");
+        assert_eq!(
+            file_name("My App: v2/beta", T, "png"),
+            "Glint_My-App-v2-beta_2026-11-02_09-03-05.png"
+        );
     }
 
     #[test]

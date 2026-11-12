@@ -18,7 +18,11 @@ impl std::fmt::Debug for Image {
 
 impl Image {
     pub fn new(width: u32, height: u32) -> Self {
-        Self { width, height, data: vec![0; width as usize * height as usize * 4] }
+        Self {
+            width,
+            height,
+            data: vec![0; width as usize * height as usize * 4],
+        }
     }
 
     pub fn filled(width: u32, height: u32, rgba: [u8; 4]) -> Self {
@@ -58,7 +62,12 @@ impl Image {
 
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let i = (y as usize * self.width as usize + x as usize) * 4;
-        [self.data[i], self.data[i + 1], self.data[i + 2], self.data[i + 3]]
+        [
+            self.data[i],
+            self.data[i + 1],
+            self.data[i + 2],
+            self.data[i + 3],
+        ]
     }
 
     pub fn bounds(&self) -> Rect {
@@ -83,7 +92,9 @@ impl Image {
     /// Copies `src` onto this image with its top-left at `x, y` (clipped, no blending).
     pub fn blit(&mut self, src: &Image, x: i32, y: i32) {
         let dst_rect = Rect::new(x, y, src.width as i32, src.height as i32);
-        let Some(clip) = dst_rect.intersect(&self.bounds()) else { return };
+        let Some(clip) = dst_rect.intersect(&self.bounds()) else {
+            return;
+        };
         let (sw, dw) = (src.width as usize * 4, self.width as usize * 4);
         let n = clip.w as usize * 4;
         for row in 0..clip.h {
@@ -100,7 +111,9 @@ impl Image {
         if self.width == 0 || self.height == 0 {
             return Image::new(1, 1);
         }
-        let scale = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
+        let scale = (max_w as f64 / self.width as f64)
+            .min(max_h as f64 / self.height as f64)
+            .min(1.0);
         let tw = ((self.width as f64 * scale).round() as u32).max(1);
         let th = ((self.height as f64 * scale).round() as u32).max(1);
         let mut out = Image::new(tw, th);

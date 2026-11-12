@@ -10,3 +10,6 @@ png.workspace = true
 serde.workspace = true
 toml.workspace = true
 windows.workspace = true
+
+[lints]
+workspace = true

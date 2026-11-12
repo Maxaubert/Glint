@@ -51,3 +51,9 @@ panic = "abort"
 
 [profile.dev.package."*"]
 opt-level = 2
+
+[workspace.lints.clippy]
+# Pixel loops read better with chunks_exact(4) and index loops over channels.
+chunks_exact_to_as_chunks = "allow"
+needless_range_loop = "allow"
+field_reassign_with_default = "allow"

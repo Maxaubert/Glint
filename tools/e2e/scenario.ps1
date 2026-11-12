@@ -10,6 +10,9 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
   [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c);
+  [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
@@ -125,6 +128,73 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
 
   $log = Get-Content "$work\local\Glint\glint.log" -ErrorAction SilentlyContinue
   $log | Select-String 'overlay shown|captured|error|failed' | ForEach-Object { Write-Output "      log: $($_.Line)" }
+
+
+  # 8. The editor: open an image, draw an arrow and an ellipse with posted mouse input, Enter exports.
+  Add-Type -AssemblyName System.Drawing
+  $png = "$work\e2e-input.png"
+  $bmp = New-Object System.Drawing.Bitmap 800, 500
+  $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::White); $g.Dispose()
+  $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
+  $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'e2e.png') -PassThru
+  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'e2e.png - Glint') -ne [IntPtr]::Zero } 10000
+  Check 'editor window opens' $okWin
+  if ($okWin) {
+    Start-Sleep -Milliseconds 800
+    $hw = [W]::FindWindow([NullString]::Value, 'e2e.png - Glint')
+    $rc = New-Object W+RECT; [W]::GetClientRect($hw, [ref]$rc) | Out-Null
+    $s = [W]::GetDpiForWindow($hw) / 96.0
+    $cw = $rc.R; $ch = $rc.B
+    $top = 50 * $s; $areaH = $ch - $top - 26 * $s
+    $fit = [math]::Min(1, [math]::Min(($cw - 24 * $s) / 800, ($areaH - 24 * $s) / 500))
+    $x0 = ($cw - 800 * $fit) / 2; $y0 = $top + ($areaH - 500 * $fit) / 2
+    function ImgPt([double] $x, [double] $y) { LParam ([int]($x0 + $x * $fit)) ([int]($y0 + $y * $fit)) }
+    function Key([int] $vk) {
+      $l = [IntPtr](1 -bor ([W]::MapVirtualKey($vk, 0) -shl 16))
+      [W]::PostMessage($hw, 0x0100, [IntPtr]$vk, $l) | Out-Null
+      [W]::PostMessage($hw, 0x0101, [IntPtr]$vk, [IntPtr]([int64]$l -bor 0xC0000000)) | Out-Null
+      Start-Sleep -Milliseconds 150
+    }
+    function DragImg([double] $ax, [double] $ay, [double] $bx, [double] $by) {
+      [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt $ax $ay)) | Out-Null
+      [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt $ax $ay)) | Out-Null
+      foreach ($i in 1..8) { [W]::PostMessage($hw, 0x0200, [IntPtr]1, (ImgPt ($ax + ($bx - $ax) * $i / 8) ($ay + ($by - $ay) * $i / 8))) | Out-Null; Start-Sleep -Milliseconds 15 }
+      [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt $bx $by)) | Out-Null
+      Start-Sleep -Milliseconds 200
+    }
+    DragImg 100 100 400 300        # arrow (default tool)
+    Key 0x4F                       # O = ellipse
+    DragImg 500 100 700 300
+    Key 0x54                       # T = text
+    [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt 150 430)) | Out-Null
+    [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt 150 430)) | Out-Null
+    [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt 150 430)) | Out-Null
+    Start-Sleep -Milliseconds 300
+    foreach ($vk in 0x48, 0x49, 0x20, 0x54, 0x48, 0x45, 0x52, 0x45) { Key $vk }   # "hi there"
+    Start-Sleep -Milliseconds 200
+    Key 0x7B                       # F12 = window snapshot (test hook), taken while typing
+    Key 0x0D                       # Enter finishes the text
+    Check 'editor snapshot written' (Wait-Until { Test-Path "$work\out\editor-window.png" })
+    Key 0x0D                       # Enter = copy (test hook: export file) and close
+    Check 'editor export written' (Wait-Until { Test-Path "$work\out\editor-export.png" })
+    Check 'editor closes after Enter' ($ed.WaitForExit(5000))
+    if (Test-Path "$work\out\editor-export.png") {
+      $out = New-Object System.Drawing.Bitmap "$work\out\editor-export.png"
+      Check 'export keeps the size' ("$($out.Width)x$($out.Height)" -eq '800x500') "$($out.Width)x$($out.Height)"
+      $mid = $out.GetPixel(250, 200)
+      Check 'arrow drawn in red' ($mid.R -gt 200 -and $mid.G -lt 100) "($($mid.R),$($mid.G),$($mid.B))"
+      $ring = $out.GetPixel(600, 100)
+      Check 'ellipse drawn' ($ring.R -gt 200 -and $ring.G -lt 100) "($($ring.R),$($ring.G),$($ring.B))"
+      $red = 0
+      for ($x = 140; $x -lt 320; $x += 2) { for ($y = 395; $y -lt 460; $y += 2) { $p = $out.GetPixel($x, $y); if ($p.R -gt 200 -and $p.G -lt 100) { $red++ } } }
+      Check 'text drawn' ($red -gt 40) "($red red samples)"
+      $blank = $out.GetPixel(600, 200)
+      Check 'ellipse is not filled' ($blank.R -eq 255 -and $blank.G -eq 255) "($($blank.R),$($blank.G),$($blank.B))"
+      $out.Dispose()
+    }
+    if ($env:GLINT_E2E_KEEP) { Copy-Item "$work\out\editor-window.png" $env:GLINT_E2E_KEEP -ErrorAction SilentlyContinue }
+  }
+  if (-not $ed.HasExited) { $ed.Kill() }
 
   Glint @('quit')
   Check 'quit stops the daemon' ($daemon.WaitForExit(5000))

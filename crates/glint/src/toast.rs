@@ -12,13 +12,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use windows::core::{w, HSTRING};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND};
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND,
+};
 use windows::Win32::Graphics::Gdi::*;
-use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Com::IDataObject;
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Ole::DROPEFFECT_COPY;
 use windows::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT};
-use windows::Win32::UI::Shell::{BHID_DataObject, IShellItem, SHCreateItemFromParsingName, SHDoDragDrop};
+use windows::Win32::UI::Shell::{
+    BHID_DataObject, IShellItem, SHCreateItemFromParsingName, SHDoDragDrop,
+};
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 const MAX_TOASTS: usize = 3;
@@ -101,7 +105,9 @@ pub fn show(image: Arc<Image>, monitor: Monitor, opts: Opts) {
     let min_h = px(110, dpi);
     let w = (thumb_img.width as i32 + 2 * pad).max(min_w);
     let h = (thumb_img.height as i32 + 2 * pad).max(min_h);
-    let Some(thumb) = Dib::from_image(&thumb_img, 1.0) else { return };
+    let Some(thumb) = Dib::from_image(&thumb_img, 1.0) else {
+        return;
+    };
     // Close the oldest if there are too many.
     let oldest = TOASTS.with(|t| {
         let t = t.borrow();
@@ -129,7 +135,12 @@ pub fn show(image: Arc<Image>, monitor: Monitor, opts: Opts) {
     let Ok(hwnd) = hwnd else { return };
     unsafe {
         let pref = DWMWCP_ROUND;
-        let _ = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &pref as *const _ as _, 4);
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const _ as _,
+            4,
+        );
     }
     let seconds = opts.seconds.max(1) as i32;
     TOASTS.with(|t| {
@@ -169,7 +180,11 @@ fn layout() {
             let dpi = t[i].monitor.dpi;
             let margin = px(14, dpi);
             let key = t[i].monitor.device.clone();
-            let below = used.iter().find(|(k, _)| *k == key).map(|(_, v)| *v).unwrap_or(0);
+            let below = used
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| *v)
+                .unwrap_or(0);
             let work = t[i].monitor.work;
             t[i].y = work.bottom() - margin - below - t[i].h;
             t[i].x = work.right() - margin - t[i].w;
@@ -191,7 +206,15 @@ fn position(t: &Toast) {
     let p = (t.shown_ms as f32 / SLIDE_MS as f32).clamp(0.0, 1.0);
     let off = ((1.0 - ease_out(p)) * (t.w as f32 + px(20, t.monitor.dpi) as f32)) as i32;
     unsafe {
-        let _ = SetWindowPos(t.hwnd, Some(HWND_TOPMOST), t.x + off, t.y, t.w, t.h, SWP_NOACTIVATE);
+        let _ = SetWindowPos(
+            t.hwnd,
+            Some(HWND_TOPMOST),
+            t.x + off,
+            t.y,
+            t.w,
+            t.h,
+            SWP_NOACTIVATE,
+        );
     }
 }
 
@@ -243,11 +266,16 @@ impl Toast {
     }
 
     fn btn_at(&self, x: i32, y: i32) -> Option<Btn> {
-        self.buttons().into_iter().find(|(_, r)| r.contains(x, y)).map(|(b, _)| b)
+        self.buttons()
+            .into_iter()
+            .find(|(_, r)| r.contains(x, y))
+            .map(|(b, _)| b)
     }
 
     fn paint(&self, hdc: HDC) {
-        let Some(back) = Dib::new(self.w, self.h) else { return };
+        let Some(back) = Dib::new(self.w, self.h) else {
+            return;
+        };
         let dc = back.dc;
         let dpi = self.dpi();
         gfx::fill(dc, &Rect::new(0, 0, self.w, self.h), rgb(30, 30, 34));
@@ -261,10 +289,31 @@ impl Toast {
             let font = Font::ui_bold(px(13, dpi));
             let small = Font::ui(px(11, dpi));
             let mid = self.h / 2;
-            gfx::text(dc, &font, "Saved", &Rect::new(0, mid - px(22, dpi), self.w, px(20, dpi)), rgb(255, 255, 255));
-            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            gfx::text(dc, &small, &name, &Rect::new(px(8, dpi), mid, self.w - px(16, dpi), px(18, dpi)), rgb(220, 220, 228));
-            gfx::text(dc, &small, "Click to show in folder", &Rect::new(0, mid + px(18, dpi), self.w, px(18, dpi)), rgb(170, 170, 180));
+            gfx::text(
+                dc,
+                &font,
+                "Saved",
+                &Rect::new(0, mid - px(22, dpi), self.w, px(20, dpi)),
+                rgb(255, 255, 255),
+            );
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            gfx::text(
+                dc,
+                &small,
+                &name,
+                &Rect::new(px(8, dpi), mid, self.w - px(16, dpi), px(18, dpi)),
+                rgb(220, 220, 228),
+            );
+            gfx::text(
+                dc,
+                &small,
+                "Click to show in folder",
+                &Rect::new(0, mid + px(18, dpi), self.w, px(18, dpi)),
+                rgb(170, 170, 180),
+            );
         } else if self.hover || std::env::var_os("GLINT_TEST_HOVER").is_some() {
             gfx::fill_alpha(dc, &self.bar(), rgb(0, 0, 0), 170);
             let icons = Font::icons(px(14, dpi));
@@ -273,16 +322,45 @@ impl Toast {
                 let hot = self.hover_btn == Some(b);
                 match b {
                     Btn::Close => {
-                        gfx::round_rect(dc, &r, r.w / 2, if hot { rgb(196, 43, 28) } else { rgb(24, 24, 28) }, None);
-                        gfx::text(dc, &Font::icons(px(10, dpi)), "\u{E8BB}", &r, rgb(255, 255, 255));
+                        gfx::round_rect(
+                            dc,
+                            &r,
+                            r.w / 2,
+                            if hot {
+                                rgb(196, 43, 28)
+                            } else {
+                                rgb(24, 24, 28)
+                            },
+                            None,
+                        );
+                        gfx::text(
+                            dc,
+                            &Font::icons(px(10, dpi)),
+                            "\u{E8BB}",
+                            &r,
+                            rgb(255, 255, 255),
+                        );
                     }
                     _ => {
-                        let bg = if hot { rgb(139, 92, 246) } else { rgb(52, 52, 60) };
+                        let bg = if hot {
+                            rgb(139, 92, 246)
+                        } else {
+                            rgb(52, 52, 60)
+                        };
                         gfx::round_rect(dc, &r, px(5, dpi), bg, None);
-                        let (glyph, name) = if b == Btn::Edit { ("\u{E70F}", "Edit") } else { ("\u{E74E}", "Save") };
+                        let (glyph, name) = if b == Btn::Edit {
+                            ("\u{E70F}", "Edit")
+                        } else {
+                            ("\u{E74E}", "Save")
+                        };
                         let icon_r = Rect::new(r.x + px(8, dpi), r.y, px(18, dpi), r.h);
                         gfx::text(dc, &icons, glyph, &icon_r, rgb(255, 255, 255));
-                        let text_r = Rect::new(icon_r.right(), r.y, r.right() - icon_r.right() - px(6, dpi), r.h);
+                        let text_r = Rect::new(
+                            icon_r.right(),
+                            r.y,
+                            r.right() - icon_r.right() - px(6, dpi),
+                            r.h,
+                        );
                         gfx::text(dc, &label, name, &text_r, rgb(255, 255, 255));
                     }
                 }
@@ -320,7 +398,11 @@ fn do_action(hwnd: HWND, action: Action) {
         Action::None => {}
         Action::Close => close(hwnd),
         Action::Edit => {
-            let Some((img, name, opts)) = with_toast(hwnd, |t| (t.image.clone(), t.suggested_name(), t.opts.clone())) else { return };
+            let Some((img, name, opts)) = with_toast(hwnd, |t| {
+                (t.image.clone(), t.suggested_name(), t.opts.clone())
+            }) else {
+                return;
+            };
             close(hwnd);
             match write_temp(&img, &name) {
                 Some(path) => crate::app::open_editor(&path, &name, &opts.save_dir, true),
@@ -328,7 +410,11 @@ fn do_action(hwnd: HWND, action: Action) {
             }
         }
         Action::Save => {
-            let Some((img, name, opts)) = with_toast(hwnd, |t| (t.image.clone(), t.suggested_name(), t.opts.clone())) else { return };
+            let Some((img, name, opts)) = with_toast(hwnd, |t| {
+                (t.image.clone(), t.suggested_name(), t.opts.clone())
+            }) else {
+                return;
+            };
             let dir = opts.save_dir.clone();
             if std::fs::create_dir_all(&dir).is_err() {
                 crate::log::line(&format!("cannot create {}", dir.display()));
@@ -351,12 +437,19 @@ fn do_action(hwnd: HWND, action: Action) {
             }
         }
         Action::Reveal(path) => {
-            let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
+            let _ = std::process::Command::new("explorer.exe")
+                .arg(format!("/select,{}", path.display()))
+                .spawn();
             close(hwnd);
         }
         Action::Drag => {
-            let Some((img, name)) = with_toast(hwnd, |t| (t.image.clone(), t.suggested_name())) else { return };
-            let Some(path) = write_temp(&img, &name) else { return };
+            let Some((img, name)) = with_toast(hwnd, |t| (t.image.clone(), t.suggested_name()))
+            else {
+                return;
+            };
+            let Some(path) = write_temp(&img, &name) else {
+                return;
+            };
             let dropped = unsafe { drag_file(hwnd, &path) };
             with_toast(hwnd, |t| t.press = None);
             if dropped {
@@ -368,9 +461,12 @@ fn do_action(hwnd: HWND, action: Action) {
 
 /// Starts a shell drag of a file. Returns true if something accepted the drop.
 unsafe fn drag_file(hwnd: HWND, path: &std::path::Path) -> bool {
-    let item: windows::core::Result<IShellItem> = SHCreateItemFromParsingName(&HSTRING::from(path.as_os_str()), None);
+    let item: windows::core::Result<IShellItem> =
+        SHCreateItemFromParsingName(&HSTRING::from(path.as_os_str()), None);
     let Ok(item) = item else { return false };
-    let Ok(data) = item.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else { return false };
+    let Ok(data) = item.BindToHandler::<_, IDataObject>(None, &BHID_DataObject) else {
+        return false;
+    };
     match SHDoDragDrop(Some(hwnd), &data, None, DROPEFFECT_COPY) {
         Ok(effect) => effect.0 != 0,
         Err(_) => false,
@@ -378,7 +474,12 @@ unsafe fn drag_file(hwnd: HWND, path: &std::path::Path) -> bool {
 }
 
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
-    let xy = || ((lp.0 & 0xFFFF) as i16 as i32, ((lp.0 >> 16) & 0xFFFF) as i16 as i32);
+    let xy = || {
+        (
+            (lp.0 & 0xFFFF) as i16 as i32,
+            ((lp.0 >> 16) & 0xFFFF) as i16 as i32,
+        )
+    };
     let mut action = Action::None;
     let res = match msg {
         WM_MOUSEACTIVATE => Some(LRESULT(MA_NOACTIVATE as isize)),

@@ -134,7 +134,8 @@ pub fn encode_dibv5(img: &Image) -> Vec<u8> {
 }
 
 fn u32_at(b: &[u8], i: usize) -> Option<u32> {
-    b.get(i..i + 4).map(|s| u32::from_le_bytes(s.try_into().unwrap()))
+    b.get(i..i + 4)
+        .map(|s| u32::from_le_bytes(s.try_into().unwrap()))
 }
 
 /// Decodes a packed DIB (`CF_DIB` or `CF_DIBV5`) with 24 or 32 bits per pixel.

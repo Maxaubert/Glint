@@ -17,6 +17,13 @@ fn main() {
             eprintln!("hdr {} white {:?}", o.device, w);
         }
         let t4 = t.elapsed();
-        println!("mons {:?} gdi {:?} hdr-list {:?} ({n}) hdr-cap {:?} | {:?}", t1, t2 - t1, t3 - t2, t4 - t3, mons);
+        println!(
+            "mons {:?} gdi {:?} hdr-list {:?} ({n}) hdr-cap {:?} | {:?}",
+            t1,
+            t2 - t1,
+            t3 - t2,
+            t4 - t3,
+            mons
+        );
     }
 }

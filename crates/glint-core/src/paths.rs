@@ -3,7 +3,9 @@
 use std::path::PathBuf;
 
 fn env_dir(var: &str) -> PathBuf {
-    std::env::var_os(var).map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
 }
 
 /// `%APPDATA%\Glint\config.toml` (or `GLINT_CONFIG` when set, for tests).

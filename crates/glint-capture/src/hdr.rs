@@ -8,20 +8,21 @@ use crate::monitors::{rect, wide_to_string};
 use glint_core::{Image, Rect};
 use windows::core::Interface;
 use windows::Win32::Devices::Display::{
-    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig, DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL,
-    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_MODE_INFO,
-    DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SDR_WHITE_LEVEL, DISPLAYCONFIG_SOURCE_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
+    DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes, QueryDisplayConfig,
+    DISPLAYCONFIG_DEVICE_INFO_GET_SDR_WHITE_LEVEL, DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME,
+    DISPLAYCONFIG_DEVICE_INFO_HEADER, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO,
+    DISPLAYCONFIG_SDR_WHITE_LEVEL, DISPLAYCONFIG_SOURCE_DEVICE_NAME, QDC_ONLY_ACTIVE_PATHS,
 };
 use windows::Win32::Foundation::HMODULE;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_CPU_ACCESS_READ,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
-    D3D11_USAGE_STAGING,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAPPED_SUBRESOURCE, D3D11_MAP_READ, D3D11_SDK_VERSION,
+    D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_MODE_ROTATION_IDENTITY,
-    DXGI_MODE_ROTATION_UNSPECIFIED,
+    DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020, DXGI_FORMAT_B8G8R8A8_UNORM,
+    DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_MODE_ROTATION_IDENTITY, DXGI_MODE_ROTATION_UNSPECIFIED,
 };
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter, IDXGIAdapter1, IDXGIFactory1, IDXGIOutput6, IDXGIResource,
@@ -47,10 +48,15 @@ pub fn hdr_outputs() -> Result<Vec<HdrOutput>, String> {
             let mut oi = 0;
             while let Ok(o) = adapter.EnumOutputs(oi) {
                 oi += 1;
-                let Ok(o6) = o.cast::<IDXGIOutput6>() else { continue };
+                let Ok(o6) = o.cast::<IDXGIOutput6>() else {
+                    continue;
+                };
                 let Ok(desc) = o6.GetDesc1() else { continue };
-                if desc.AttachedToDesktop.as_bool() && desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020 {
-                    let rotated = desc.Rotation != DXGI_MODE_ROTATION_IDENTITY && desc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED;
+                if desc.AttachedToDesktop.as_bool()
+                    && desc.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020
+                {
+                    let rotated = desc.Rotation != DXGI_MODE_ROTATION_IDENTITY
+                        && desc.Rotation != DXGI_MODE_ROTATION_UNSPECIFIED;
                     if rotated {
                         continue; // rare; the GDI copy is kept
                     }
@@ -80,7 +86,9 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
         let mut device: Option<ID3D11Device> = None;
         let mut ctx: Option<ID3D11DeviceContext> = None;
         D3D11CreateDevice(
-            &o.adapter.cast::<IDXGIAdapter>().map_err(|e| e.to_string())?,
+            &o.adapter
+                .cast::<IDXGIAdapter>()
+                .map_err(|e| e.to_string())?,
             D3D_DRIVER_TYPE_UNKNOWN,
             HMODULE::default(),
             D3D11_CREATE_DEVICE_BGRA_SUPPORT,
@@ -95,7 +103,11 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
         trace("device");
         let dup = o
             .output
-            .DuplicateOutput1(&device, 0, &[DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM])
+            .DuplicateOutput1(
+                &device,
+                0,
+                &[DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM],
+            )
             .map_err(|e| format!("DuplicateOutput1: {e}"))?;
         trace("duplicate");
         let mut info = DXGI_OUTDUPL_FRAME_INFO::default();
@@ -103,7 +115,8 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
         // The first frame after creating a duplication holds the current desktop image.
         let mut tries = 0;
         loop {
-            dup.AcquireNextFrame(500, &mut info, &mut res).map_err(|e| format!("AcquireNextFrame: {e}"))?;
+            dup.AcquireNextFrame(500, &mut info, &mut res)
+                .map_err(|e| format!("AcquireNextFrame: {e}"))?;
             if info.LastPresentTime != 0 || tries >= 3 {
                 break;
             }
@@ -123,12 +136,15 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
         sdesc.MipLevels = 1;
         sdesc.ArraySize = 1;
         let mut staging: Option<ID3D11Texture2D> = None;
-        device.CreateTexture2D(&sdesc, None, Some(&mut staging)).map_err(|e| e.to_string())?;
+        device
+            .CreateTexture2D(&sdesc, None, Some(&mut staging))
+            .map_err(|e| e.to_string())?;
         let staging = staging.ok_or("no staging texture")?;
         ctx.CopyResource(&staging, &tex);
         let _ = dup.ReleaseFrame();
         let mut map = D3D11_MAPPED_SUBRESOURCE::default();
-        ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut map)).map_err(|e| e.to_string())?;
+        ctx.Map(&staging, 0, D3D11_MAP_READ, 0, Some(&mut map))
+            .map_err(|e| e.to_string())?;
         trace("map");
         let (w, h) = (desc.Width, desc.Height);
         let stride = map.RowPitch as usize;
@@ -148,12 +164,21 @@ pub fn capture_output(o: &HdrOutput) -> Result<Image, String> {
 pub fn sdr_white_level(gdi_device: &str) -> Option<u32> {
     unsafe {
         let (mut np, mut nm) = (0u32, 0u32);
-        GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm).ok().ok()?;
-        let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
-        let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
-        QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &mut np, paths.as_mut_ptr(), &mut nm, modes.as_mut_ptr(), None)
+        GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut np, &mut nm)
             .ok()
             .ok()?;
+        let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); np as usize];
+        let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); nm as usize];
+        QueryDisplayConfig(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut np,
+            paths.as_mut_ptr(),
+            &mut nm,
+            modes.as_mut_ptr(),
+            None,
+        )
+        .ok()
+        .ok()?;
         for p in &paths[..np as usize] {
             let mut name = DISPLAYCONFIG_SOURCE_DEVICE_NAME {
                 header: DISPLAYCONFIG_DEVICE_INFO_HEADER {
@@ -164,7 +189,9 @@ pub fn sdr_white_level(gdi_device: &str) -> Option<u32> {
                 },
                 ..Default::default()
             };
-            if DisplayConfigGetDeviceInfo(&mut name.header) != 0 || wide_to_string(&name.viewGdiDeviceName) != gdi_device {
+            if DisplayConfigGetDeviceInfo(&mut name.header) != 0
+                || wide_to_string(&name.viewGdiDeviceName) != gdi_device
+            {
                 continue;
             }
             let mut white = DISPLAYCONFIG_SDR_WHITE_LEVEL {
@@ -206,8 +233,16 @@ pub fn half_to_f32(h: u16) -> f32 {
 pub fn tone_map_channel(x: f32) -> u8 {
     let x = if x.is_nan() { 0.0 } else { x.max(0.0) };
     const KNEE: f32 = 0.9;
-    let y = if x <= KNEE { x } else { KNEE + (1.0 - KNEE) * (1.0 - (-(x - KNEE) / (1.0 - KNEE)).exp()) };
-    let s = if y <= 0.003_130_8 { 12.92 * y } else { 1.055 * y.powf(1.0 / 2.4) - 0.055 };
+    let y = if x <= KNEE {
+        x
+    } else {
+        KNEE + (1.0 - KNEE) * (1.0 - (-(x - KNEE) / (1.0 - KNEE)).exp())
+    };
+    let s = if y <= 0.003_130_8 {
+        12.92 * y
+    } else {
+        1.055 * y.powf(1.0 / 2.4) - 0.055
+    };
     (s * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
@@ -215,7 +250,9 @@ pub fn tone_map_channel(x: f32) -> u8 {
 /// Every half-float bit pattern maps to one output byte, so the work is one table lookup per channel.
 pub fn tone_map_fp16(w: u32, h: u32, src: &[u8], stride: usize, white: u32) -> Image {
     let k = 1000.0 / white.max(1) as f32; // scRGB value -> multiple of SDR white
-    let lut: Vec<u8> = (0..=u16::MAX).map(|bits| tone_map_channel(half_to_f32(bits) * k)).collect();
+    let lut: Vec<u8> = (0..=u16::MAX)
+        .map(|bits| tone_map_channel(half_to_f32(bits) * k))
+        .collect();
     let mut img = Image::new(w, h);
     let row_out = w as usize * 4;
     for (y, out_row) in img.data.chunks_exact_mut(row_out).enumerate() {

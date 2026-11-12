@@ -121,7 +121,12 @@ pub fn hit_handle(r: &Rect, px: i32, py: i32, tol: i32) -> Option<Handle> {
     if !(in_x && in_y) {
         return None;
     }
-    let (l, rr, t, b) = (near(px, r.x), near(px, r.right()), near(py, r.y), near(py, r.bottom()));
+    let (l, rr, t, b) = (
+        near(px, r.x),
+        near(px, r.right()),
+        near(py, r.y),
+        near(py, r.bottom()),
+    );
     Some(match (l, rr, t, b) {
         (true, _, true, _) => Handle::NW,
         (_, true, true, _) => Handle::NE,
@@ -190,18 +195,23 @@ impl Monitor {
 
 /// The bounding box of all monitors (can start at negative coordinates).
 pub fn virtual_bounds(monitors: &[Monitor]) -> Rect {
-    monitors.iter().fold(Rect::default(), |acc, m| acc.union(&m.rect))
+    monitors
+        .iter()
+        .fold(Rect::default(), |acc, m| acc.union(&m.rect))
 }
 
 /// The monitor containing the point, or the nearest one.
 pub fn monitor_at(monitors: &[Monitor], px: i32, py: i32) -> Option<&Monitor> {
-    monitors.iter().find(|m| m.rect.contains(px, py)).or_else(|| {
-        monitors.iter().min_by_key(|m| {
-            let (cx, cy) = m.rect.center();
-            let (dx, dy) = ((cx - px) as i64, (cy - py) as i64);
-            dx * dx + dy * dy
+    monitors
+        .iter()
+        .find(|m| m.rect.contains(px, py))
+        .or_else(|| {
+            monitors.iter().min_by_key(|m| {
+                let (cx, cy) = m.rect.center();
+                let (dx, dy) = ((cx - px) as i64, (cy - py) as i64);
+                dx * dx + dy * dy
+            })
         })
-    })
 }
 
 #[cfg(test)]
@@ -211,7 +221,13 @@ mod tests {
     const B: Rect = Rect::new(-1920, 0, 4480, 1440);
 
     fn mon(rect: Rect, dpi: u32, device: &str) -> Monitor {
-        Monitor { rect, work: rect, dpi, primary: false, device: device.into() }
+        Monitor {
+            rect,
+            work: rect,
+            dpi,
+            primary: false,
+            device: device.into(),
+        }
     }
 
     #[test]
@@ -258,9 +274,18 @@ mod tests {
     #[test]
     fn drag_edge_flips_past_opposite() {
         let r = Rect::new(100, 100, 50, 50);
-        assert_eq!(drag_handle(&r, Handle::E, -80, 0, &B), Rect::new(70, 100, 30, 50));
-        assert_eq!(drag_handle(&r, Handle::SE, 10, 20, &B), Rect::new(100, 100, 60, 70));
-        assert_eq!(drag_handle(&r, Handle::Move, 5, 5, &B), Rect::new(105, 105, 50, 50));
+        assert_eq!(
+            drag_handle(&r, Handle::E, -80, 0, &B),
+            Rect::new(70, 100, 30, 50)
+        );
+        assert_eq!(
+            drag_handle(&r, Handle::SE, 10, 20, &B),
+            Rect::new(100, 100, 60, 70)
+        );
+        assert_eq!(
+            drag_handle(&r, Handle::Move, 5, 5, &B),
+            Rect::new(105, 105, 50, 50)
+        );
     }
 
     #[test]

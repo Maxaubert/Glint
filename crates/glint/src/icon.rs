@@ -27,7 +27,11 @@ pub fn pixels(n: u32) -> Vec<u8> {
             let s = if bg > 0 { star as f32 / bg as f32 } else { 0.0 };
             // Diagonal gradient: violet (top-left) to teal (bottom-right).
             let t = (x + y) as f32 / (2 * n) as f32;
-            let base = [lerp(124.0, 20.0, t), lerp(77.0, 184.0, t), lerp(255.0, 166.0, t)];
+            let base = [
+                lerp(124.0, 20.0, t),
+                lerp(77.0, 184.0, t),
+                lerp(255.0, 166.0, t),
+            ];
             let i = ((y * n + x) * 4) as usize;
             for c in 0..3 {
                 out[i + c] = lerp(base[c], 255.0, s).round() as u8;
@@ -68,7 +72,13 @@ pub fn hicon(n: u32) -> Option<HICON> {
         let color = CreateBitmap(n as i32, n as i32, 1, 32, Some(bgra.as_ptr() as _));
         let mask_bits = vec![0u8; (n.div_ceil(16) * 2 * n) as usize];
         let mask = CreateBitmap(n as i32, n as i32, 1, 1, Some(mask_bits.as_ptr() as _));
-        let info = ICONINFO { fIcon: true.into(), xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+        let info = ICONINFO {
+            fIcon: true.into(),
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
         let icon = CreateIconIndirect(&info).ok();
         let _ = DeleteObject(color.into());
         let _ = DeleteObject(mask.into());

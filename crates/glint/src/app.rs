@@ -14,7 +14,9 @@ use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT,
+};
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
@@ -84,7 +86,10 @@ fn config() -> Config {
 }
 
 pub fn save_dir(c: &Config) -> PathBuf {
-    c.save_dir.clone().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(paths::default_save_dir)
+    c.save_dir
+        .clone()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(paths::default_save_dir)
 }
 
 fn mtime(p: &Path) -> Option<SystemTime> {
@@ -223,7 +228,11 @@ fn show_menu(hwnd: HWND) {
         let Ok(menu) = CreatePopupMenu() else { return };
         let add = |id: usize, text: &str, checked: bool| {
             let t = wide(text);
-            let flags = if checked { MF_STRING | MF_CHECKED } else { MF_STRING };
+            let flags = if checked {
+                MF_STRING | MF_CHECKED
+            } else {
+                MF_STRING
+            };
             let _ = AppendMenuW(menu, flags, id, PCWSTR(t.as_ptr()));
         };
         let sep = || {
@@ -231,21 +240,42 @@ fn show_menu(hwnd: HWND) {
         };
         add(ID_REGION, &label("Snip a region", &c.hotkeys.region), false);
         add(ID_WINDOW, &label("Snip a window", &c.hotkeys.window), false);
-        add(ID_FULL, &label("Snip the full screen", &c.hotkeys.fullscreen), false);
+        add(
+            ID_FULL,
+            &label("Snip the full screen", &c.hotkeys.fullscreen),
+            false,
+        );
         sep();
         add(ID_OPEN, "Open an image...", false);
         add(ID_PASTE, "Edit the image on the clipboard", false);
         add(ID_FOLDER, "Open the screenshots folder", false);
         sep();
-        add(ID_PRTSC, "Use the Print Screen key", c.print_screen && !system::print_screen_opens_snipping_tool());
-        add(ID_STARTUP, "Start with Windows", system::starts_with_windows());
+        add(
+            ID_PRTSC,
+            "Use the Print Screen key",
+            c.print_screen && !system::print_screen_opens_snipping_tool(),
+        );
+        add(
+            ID_STARTUP,
+            "Start with Windows",
+            system::starts_with_windows(),
+        );
         add(ID_SETTINGS, "Edit settings (config.toml)", false);
         sep();
         add(ID_QUIT, "Quit Glint", false);
         let mut p = POINT::default();
         let _ = GetCursorPos(&mut p);
         let _ = SetForegroundWindow(hwnd);
-        let id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN, p.x, p.y, None, hwnd, None).0 as usize;
+        let id = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
+            p.x,
+            p.y,
+            None,
+            hwnd,
+            None,
+        )
+        .0 as usize;
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
         let _ = DestroyMenu(menu);
         match id {
@@ -263,7 +293,10 @@ fn show_menu(hwnd: HWND) {
             ID_STARTUP => {
                 let on = !system::starts_with_windows();
                 if let Err(e) = system::set_start_with_windows(on) {
-                    notify("Glint", &format!("Could not change start with Windows: {e}"));
+                    notify(
+                        "Glint",
+                        &format!("Could not change start with Windows: {e}"),
+                    );
                 }
             }
             ID_SETTINGS => {
@@ -288,13 +321,21 @@ fn toggle_print_screen(hwnd: HWND) {
              (Settings > Accessibility > Keyboard). You can turn it back on here at any time.\n\nContinue?",
         );
         let answer = unsafe {
-            MessageBoxW(Some(hwnd), PCWSTR(text.as_ptr()), w!("Glint: Print Screen key"), MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND)
+            MessageBoxW(
+                Some(hwnd),
+                PCWSTR(text.as_ptr()),
+                w!("Glint: Print Screen key"),
+                MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
+            )
         };
         if answer != IDYES {
             return;
         }
         if let Err(e) = system::set_print_screen_opens_snipping_tool(false) {
-            notify("Glint", &format!("Could not change the Windows setting: {e}"));
+            notify(
+                "Glint",
+                &format!("Could not change the Windows setting: {e}"),
+            );
             return;
         }
         c.print_screen = true;
@@ -318,7 +359,9 @@ fn toggle_print_screen(hwnd: HWND) {
 const HOTKEY_IDS: [i32; 5] = [1, 2, 3, 4, 5];
 
 fn register_hotkeys(report: bool) {
-    let Some((hwnd, c)) = with(|a| (a.hwnd, a.config.clone())) else { return };
+    let Some((hwnd, c)) = with(|a| (a.hwnd, a.config.clone())) else {
+        return;
+    };
     unsafe {
         for id in HOTKEY_IDS {
             let _ = UnregisterHotKey(Some(hwnd), id);
@@ -341,12 +384,19 @@ fn register_hotkeys(report: bool) {
         match parse_hotkey(&text) {
             Ok(hk) => {
                 let mut mods = MOD_NOREPEAT.0;
-                for (bit, m) in [(MOD_ALT, 0x1), (MOD_CONTROL, 0x2), (MOD_SHIFT, 0x4), (MOD_WIN, 0x8)] {
+                for (bit, m) in [
+                    (MOD_ALT, 0x1),
+                    (MOD_CONTROL, 0x2),
+                    (MOD_SHIFT, 0x4),
+                    (MOD_WIN, 0x8),
+                ] {
                     if hk.mods & bit != 0 {
                         mods |= m;
                     }
                 }
-                if unsafe { RegisterHotKey(Some(hwnd), id, HOT_KEY_MODIFIERS(mods), hk.vk) }.is_err() {
+                if unsafe { RegisterHotKey(Some(hwnd), id, HOT_KEY_MODIFIERS(mods), hk.vk) }
+                    .is_err()
+                {
                     failed.push(format!("{text} (in use by another app)"));
                 }
             }
@@ -409,7 +459,11 @@ pub fn run_command(cmd: Command) {
         }
         Command::PasteToEditor => {
             let c = config();
-            spawn_editor(&["--paste".into(), "--save-dir".into(), save_dir(&c).display().to_string()]);
+            spawn_editor(&[
+                "--paste".into(),
+                "--save-dir".into(),
+                save_dir(&c).display().to_string(),
+            ]);
             return;
         }
         _ => {}
@@ -435,7 +489,11 @@ pub fn run_command(cmd: Command) {
     for n in &frame.notes {
         log::line(n);
     }
-    log::line(&format!("captured {:?} in {} ms", frame.image, t.elapsed().as_millis()));
+    log::line(&format!(
+        "captured {:?} in {} ms",
+        frame.image,
+        t.elapsed().as_millis()
+    ));
     let (cx, cy) = cursor();
     let mon_at = |f: &glint_capture::Frame, x: i32, y: i32| monitor_at(&f.monitors, x, y).cloned();
     let direct = match &cmd {
@@ -457,14 +515,30 @@ pub fn run_command(cmd: Command) {
         finish(image, rect, monitor, app_name);
         return;
     }
-    let mode = if cmd == Command::Window { Mode::Window } else { Mode::Region };
+    let mode = if cmd == Command::Window {
+        Mode::Window
+    } else {
+        Mode::Region
+    };
     let started = std::time::Instant::now();
-    let res = overlay::show(frame, mode, c.capture_on_release, move |outcome| match outcome {
-        Outcome::Capture { image, rect, monitor } => finish(image, rect, monitor, app_name),
-        Outcome::Cancel => log::line("cancelled"),
-    });
+    let res = overlay::show(
+        frame,
+        mode,
+        c.capture_on_release,
+        move |outcome| match outcome {
+            Outcome::Capture {
+                image,
+                rect,
+                monitor,
+            } => finish(image, rect, monitor, app_name),
+            Outcome::Cancel => log::line("cancelled"),
+        },
+    );
     match res {
-        Ok(()) => log::line(&format!("overlay shown in {} ms", started.elapsed().as_millis() + t.elapsed().as_millis())),
+        Ok(()) => log::line(&format!(
+            "overlay shown in {} ms",
+            started.elapsed().as_millis() + t.elapsed().as_millis()
+        )),
         Err(e) => notify("Glint", &e),
     }
 }
@@ -487,23 +561,41 @@ fn finish(image: Image, rect: Rect, monitor: Monitor, app: Option<String>) {
         // Tests run with GLINT_TEST_DIR and must not overwrite the user's clipboard.
         if test_dir.is_none() || std::env::var_os("GLINT_TEST_CLIPBOARD").is_some() {
             match clipboard::set_image(&img, Some(owner)) {
-                Ok(()) => log::line(&format!("copied {:?} in {} ms", img, t.elapsed().as_millis())),
+                Ok(()) => log::line(&format!(
+                    "copied {:?} in {} ms",
+                    img,
+                    t.elapsed().as_millis()
+                )),
                 Err(e) => log::line(&format!("clipboard failed: {e}")),
             }
         }
         if let Some(dir) = test_dir {
             let _ = std::fs::create_dir_all(&dir);
-            let _ = std::fs::write(dir.join(format!("capture-{n}.png")), glint_core::encode::encode_png_fast(&img));
+            let _ = std::fs::write(
+                dir.join(format!("capture-{n}.png")),
+                glint_core::encode::encode_png_fast(&img),
+            );
         }
     });
     let c = config();
-    toast::show(image, monitor, toast::Opts { seconds: c.preview_seconds, save_dir: save_dir(&c), app });
+    toast::show(
+        image,
+        monitor,
+        toast::Opts {
+            seconds: c.preview_seconds,
+            save_dir: save_dir(&c),
+            app,
+        },
+    );
 }
 
 fn spawn_editor(args: &[String]) {
     let exe = paths::sibling_exe("glint-editor.exe");
     if let Err(e) = std::process::Command::new(&exe).args(args).spawn() {
-        notify("Glint could not open the editor", &format!("{}: {e}", exe.display()));
+        notify(
+            "Glint could not open the editor",
+            &format!("{}: {e}", exe.display()),
+        );
     }
 }
 
@@ -544,7 +636,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_COPYDATA => {
             let cds = &*(lp.0 as *const COPYDATASTRUCT);
             if cds.dwData == COPYDATA_TAG && !cds.lpData.is_null() {
-                let bytes = std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize);
+                let bytes =
+                    std::slice::from_raw_parts(cds.lpData as *const u8, cds.cbData as usize);
                 let text = String::from_utf8_lossy(bytes).to_string();
                 // Run after this message returns, so the sender is not blocked by the overlay.
                 if let Some(c) = Command::parse(&text) {
@@ -589,7 +682,10 @@ mod tests {
     #[test]
     fn parses_commands() {
         assert_eq!(Command::parse("region"), Some(Command::Region));
-        assert_eq!(Command::parse("rect 10 -20 30 40"), Some(Command::Rect(Rect::new(10, -20, 30, 40))));
+        assert_eq!(
+            Command::parse("rect 10 -20 30 40"),
+            Some(Command::Rect(Rect::new(10, -20, 30, 40)))
+        );
         assert_eq!(Command::parse("rect 1 2 0 4"), None);
         assert_eq!(Command::parse("bogus"), None);
     }

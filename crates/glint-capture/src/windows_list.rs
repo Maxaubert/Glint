@@ -4,13 +4,15 @@ use crate::monitors::rect;
 use glint_core::Rect;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
-use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
+use windows::Win32::Graphics::Dwm::{
+    DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
-    GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
+    EnumWindows, GetClassNameW, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsIconic,
+    IsWindowVisible, GWL_EXSTYLE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
 
 #[derive(Clone, Debug)]
@@ -57,8 +59,13 @@ unsafe extern "system" fn each(hwnd: HWND, data: LPARAM) -> BOOL {
         return BOOL(1);
     }
     let mut r = RECT::default();
-    if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut _, std::mem::size_of::<RECT>() as u32)
-        .is_err()
+    if DwmGetWindowAttribute(
+        hwnd,
+        DWMWA_EXTENDED_FRAME_BOUNDS,
+        &mut r as *mut _ as *mut _,
+        std::mem::size_of::<RECT>() as u32,
+    )
+    .is_err()
     {
         return BOOL(1);
     }
@@ -73,13 +80,21 @@ unsafe extern "system" fn each(hwnd: HWND, data: LPARAM) -> BOOL {
     if title.is_empty() && ex & WS_EX_TOOLWINDOW.0 != 0 {
         return BOOL(1);
     }
-    ctx.out.push(WindowInfo { hwnd: hwnd.0 as isize, rect: rc, title, pid });
+    ctx.out.push(WindowInfo {
+        hwnd: hwnd.0 as isize,
+        rect: rc,
+        title,
+        pid,
+    });
     BOOL(1)
 }
 
 /// Visible top-level windows of other processes, topmost first.
 pub fn list() -> Vec<WindowInfo> {
-    let mut ctx = Ctx { own_pid: std::process::id(), out: Vec::new() };
+    let mut ctx = Ctx {
+        own_pid: std::process::id(),
+        out: Vec::new(),
+    };
     unsafe {
         let _ = EnumWindows(Some(each), LPARAM(&mut ctx as *mut _ as isize));
     }
@@ -97,7 +112,12 @@ pub fn process_name(pid: u32) -> Option<String> {
         let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?;
         let mut buf = [0u16; 512];
         let mut len = buf.len() as u32;
-        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, windows::core::PWSTR(buf.as_mut_ptr()), &mut len);
+        let ok = QueryFullProcessImageNameW(
+            h,
+            PROCESS_NAME_WIN32,
+            windows::core::PWSTR(buf.as_mut_ptr()),
+            &mut len,
+        );
         let _ = CloseHandle(h);
         ok.ok()?;
         let path = String::from_utf16_lossy(&buf[..len as usize]);
@@ -124,7 +144,12 @@ mod tests {
         let all = super::list();
         eprintln!("{} windows", all.len());
         for w in all.iter().take(5) {
-            eprintln!("{:?} {:?} {:?}", w.title, w.rect, super::process_name(w.pid));
+            eprintln!(
+                "{:?} {:?} {:?}",
+                w.title,
+                w.rect,
+                super::process_name(w.pid)
+            );
         }
     }
 }

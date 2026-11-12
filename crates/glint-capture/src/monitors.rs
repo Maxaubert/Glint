@@ -3,7 +3,9 @@
 use glint_core::{Monitor, Rect};
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT};
-use windows::Win32::Graphics::Gdi::{EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW};
+use windows::Win32::Graphics::Gdi::{
+    EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, MONITORINFOEXW,
+};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
 pub(crate) fn rect(r: &RECT) -> Rect {
@@ -37,7 +39,12 @@ unsafe extern "system" fn collect(hmon: HMONITOR, _: HDC, _: *mut RECT, data: LP
 pub fn enumerate() -> Vec<Monitor> {
     let mut out: Vec<Monitor> = Vec::new();
     unsafe {
-        let _ = EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut out as *mut _ as isize));
+        let _ = EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect),
+            LPARAM(&mut out as *mut _ as isize),
+        );
     }
     out.sort_by_key(|m| !m.primary);
     out
