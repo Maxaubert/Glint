@@ -32,6 +32,8 @@ $env:GLINT_INSTANCE = "e2e-$PID"
 # A hidden desktop has no screen image to copy, so the daemon paints a gradient instead.
 # Real capture is covered by the glint-capture unit tests.
 $env:GLINT_TEST_SYNTHETIC = '1'
+# One theme for pixel checks.
+$env:GLINT_THEME = 'dark'
 # No global hotkeys in tests: they would steal keys from the owner's apps.
 @"
 preview_seconds = 30
@@ -185,7 +187,7 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
     $rc = New-Object W+RECT; [W]::GetClientRect($hw, [ref]$rc) | Out-Null
     $s = [W]::GetDpiForWindow($hw) / 96.0
     $cw = $rc.R; $ch = $rc.B
-    $top = 50 * $s; $areaH = $ch - $top
+    $top = 64 * $s; $areaH = $ch - (64 + 84) * $s
     $fit = [math]::Min(1, [math]::Min(($cw - 24 * $s) / 800, ($areaH - 24 * $s) / 500))
     $x0 = ($cw - 800 * $fit) / 2; $y0 = $top + ($areaH - 500 * $fit) / 2
     function ImgPt([double] $x, [double] $y) { LParam ([int]($x0 + $x * $fit)) ([int]($y0 + $y * $fit)) }
@@ -212,7 +214,7 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       New-Item -ItemType Directory -Force "$PSScriptRoot\..\..\.e2e" | Out-Null
       Copy-Item -Force "$work\out\editor-tooltip.png" "$PSScriptRoot\..\..\.e2e\editor-tooltip.png"
       $tb = New-Object System.Drawing.Bitmap "$work\out\editor-tooltip.png"
-      $px = $tb.GetPixel([int](25 * $s), [int](70 * $s)); $tb.Dispose()
+      $px = $tb.GetPixel([int](200 * $s), [int](230 * $s)); $tb.Dispose()   # tooltip below (200,200)
       Check 'toolbar tooltip draws' ($px.R -ge 0x24 -and $px.R -le 0x34 -and $px.B -ge 0x2a -and $px.B -le 0x3a) "($($px.R),$($px.G),$($px.B))"
     } else { Check 'tooltip snapshot written' $false }
     # The Copy button's checkmark (F10 test hook), kept for a look.

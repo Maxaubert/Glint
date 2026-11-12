@@ -1,9 +1,11 @@
-// The Glint editor window: a toolbar, the canvas, and a status line.
+// The Glint editor window, "floating dock" layout (docs/mockups/2026-11-12-editor-layouts.html, #2):
+// the picture fills the window, the tools float in a dock at the bottom, Copy / Save / Settings are
+// pills at the top right. Follows Windows light and dark mode (Theme.dark, set from main.rs).
 // All drawing happens in Rust (tiny-skia); this file only lays out and forwards input.
 
 export struct ToolItem {
     id: string,
-    glyph: string,
+    icon: image,
     tip: string,
     key: string,
 }
@@ -16,6 +18,29 @@ export struct CropFrame {
     x1: float,
     y1: float,
     grid: bool,
+}
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> bg: dark ? #111114 : #e9e9ee;
+    out property <color> panel: dark ? #1f1f25f2 : #fbfbfdf5;
+    out property <color> panel-edge: dark ? #ffffff17 : #0000001a;
+    out property <color> pill: dark ? #26262dee : #fbfbfdf2;
+    out property <color> hover: dark ? #ffffff17 : #0000000f;
+    out property <color> accent: #8b5cf6;
+    out property <color> accent-hover: #9d74f7;
+    out property <color> text: dark ? #ececf1 : #1b1b1f;
+    out property <color> dim-text: dark ? #9a9aa6 : #6b6b78;
+    out property <color> disabled: dark ? #ececf150 : #1b1b1f40;
+    out property <color> sep: dark ? #ffffff1f : #0000001c;
+    out property <color> tip-bg: dark ? #2a2a31 : #ffffff;
+    out property <color> tip-edge: dark ? #ffffff1f : #0000001f;
+    out property <color> key-bg: dark ? #ffffff12 : #0000000a;
+    out property <color> shadow: dark ? #00000099 : #0000002e;
+    out property <color> swatch-edge: dark ? #ffffff40 : #00000030;
+    // The Copy pill after a copy: white in dark mode, near-black in light mode.
+    out property <color> done-bg: dark ? #ffffff : #1b1b1f;
+    out property <color> done-text: dark ? #17171b : #ffffff;
 }
 
 // A white handle bar with a thin dark edge, so it shows on white and on dark images.
@@ -43,97 +68,91 @@ component GridLine inherits Rectangle {
     }
 }
 
-global Theme {
-    out property <color> bg: #141417;
-    out property <color> bar: #1f1f24;
-    out property <color> hover: #ffffff17;
-    out property <color> accent: #8b5cf6;
-    out property <color> text: #ececf1;
-    out property <color> dim-text: #9a9aa6;
-    out property <color> tip-bg: #2a2a31;
-    out property <string> icons: "Segoe Fluent Icons";
-}
-
+// Hovered buttons report (tooltip text, shortcut, centre x, centre y) in window coordinates.
 component IconButton inherits Rectangle {
-    in property <string> glyph;
+    in property <image> icon;
     in property <string> tip;
     in property <string> key;
     in property <bool> active;
     in property <bool> enabled: true;
+    in property <length> icon-size: 20px;
     callback clicked;
-    callback hovered(string, string, length);
-    width: 34px;
-    height: 34px;
-    border-radius: 6px;
+    callback hovered(string, string, length, length);
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
     background: root.active ? Theme.accent : (ta.has-hover && root.enabled ? Theme.hover : transparent);
-    Text {
-        text: root.glyph;
-        font-family: Theme.icons;
-        font-size: 15px;
-        color: root.enabled ? Theme.text : #ececf150;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    Image {
+        source: root.icon;
+        width: root.icon-size;
+        height: root.icon-size;
+        colorize: root.active ? #ffffff : root.enabled ? Theme.text : Theme.disabled;
     }
     ta := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2, root.absolute-position.y + root.height / 2); }
     }
 }
 
-component TextButton inherits Rectangle {
-    in property <string> glyph;
+// Copy and Save: rounded pills with an icon and a label. Copy confirms by turning white (dark mode)
+// or near-black (light mode) with a checkmark that pops in, and "Copied".
+component PillButton inherits Rectangle {
+    in property <image> icon;
     in property <string> label;
-    // Copy button: the icon turns into a checkmark and the label says what happened.
+    in property <bool> primary;
     in property <bool> done;
-    in property <string> done-label;
     in property <string> tip;
     in property <string> key;
-    in property <bool> primary;
     callback clicked;
-    callback hovered(string, string, length);
-    height: 34px;
-    border-radius: 6px;
-    background: root.done ? #22c55e2e : root.primary ? (ta.has-hover ? #9d74f7 : Theme.accent) : (ta.has-hover ? Theme.hover : transparent);
-    animate background { duration: 200ms; }
-    HorizontalLayout {
-        padding-left: 10px;
-        padding-right: 12px;
-        spacing: 7px;
+    callback hovered(string, string, length, length);
+    height: 38px;
+    border-radius: 19px;
+    width: row.preferred-width;
+    animate width { duration: 160ms; easing: ease-out; }
+    background: root.done ? Theme.done-bg : root.primary ? (ta.has-hover ? Theme.accent-hover : Theme.accent) : (ta.has-hover ? Theme.hover.mix(Theme.pill, 0.5) : Theme.pill);
+    animate background { duration: 220ms; easing: ease-out; }
+    border-width: root.primary || root.done ? 0 : 1px;
+    border-color: Theme.panel-edge;
+    drop-shadow-blur: 12px;
+    drop-shadow-offset-y: 3px;
+    drop-shadow-color: Theme.shadow;
+    property <color> fg: root.done ? Theme.done-text : root.primary ? #ffffff : Theme.text;
+    row := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 17px;
+        spacing: 8px;
         Rectangle {
-            width: 16px;
-            Text {
-                text: root.glyph;
-                font-family: Theme.icons;
-                font-size: root.done ? 6px : 14px;
+            width: 18px;
+            Image {
+                source: root.icon;
+                width: root.done ? 6px : 18px;
+                height: self.width;
                 opacity: root.done ? 0 : 1;
-                animate font-size, opacity { duration: 160ms; easing: ease-in; }
-                color: Theme.text;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                colorize: root.fg;
+                animate width, opacity { duration: 140ms; easing: ease-in; }
             }
-            Text {
-                text: "\u{E73E}";
-                font-family: Theme.icons;
-                font-size: root.done ? 15px : 4px;
+            Image {
+                source: @image-url("icons/check.svg");
+                width: root.done ? 18px : 4px;
+                height: self.width;
                 opacity: root.done ? 1 : 0;
-                animate font-size { duration: 320ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
-                animate opacity { duration: 160ms; }
-                color: #4ade80;
-                horizontal-alignment: center;
-                vertical-alignment: center;
+                colorize: root.fg;
+                animate width { duration: 320ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+                animate opacity { duration: 140ms; }
             }
         }
         Text {
-            text: root.done && root.done-label != "" ? root.done-label : root.label;
-            font-size: 13px;
-            color: Theme.text;
+            text: root.done ? "Copied" : root.label;
+            font-size: 13.5px;
+            font-weight: 600;
+            color: root.fg;
             vertical-alignment: center;
         }
     }
     ta := TouchArea {
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2, root.absolute-position.y + root.height / 2); }
     }
 }
 
@@ -143,27 +162,39 @@ component Swatch inherits Rectangle {
     in property <string> tip;
     in property <string> key;
     callback clicked;
-    callback hovered(string, string, length);
-    width: 26px;
-    height: 34px;
+    callback hovered(string, string, length, length);
+    width: 28px;
+    height: 38px;
     Rectangle {
-        width: 20px;
-        height: 20px;
-        border-radius: 10px;
+        width: root.active ? 26px : 20px;
+        height: self.width;
+        border-radius: self.width / 2;
+        background: transparent;
+        border-width: root.active ? 2px : 0;
+        border-color: Theme.text;
+        animate width { duration: 120ms; }
+    }
+    Rectangle {
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
         background: root.swatch;
-        border-width: root.active ? 2px : 1px;
-        border-color: root.active ? Theme.text : #ffffff40;
+        border-width: 1px;
+        border-color: Theme.swatch-edge;
     }
     TouchArea {
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2, root.absolute-position.y + root.height / 2); }
     }
 }
 
 component Separator inherits Rectangle {
-    width: 1px;
-    height: 22px;
-    background: #ffffff1c;
+    width: 13px;
+    Rectangle {
+        width: 1px;
+        height: 22px;
+        background: Theme.sep;
+    }
 }
 
 export component EditorWindow inherits Window {
@@ -173,7 +204,7 @@ export component EditorWindow inherits Window {
     background: Theme.bg;
     default-font-family: "Segoe UI Variable Text";
     min-width: 980px;
-    min-height: 360px;
+    min-height: 420px;
 
     in property <[ToolItem]> tools;
     in property <[color]> palette;
@@ -187,7 +218,7 @@ export component EditorWindow inherits Window {
     in property <bool> can-redo;
     in property <string> status;
     property <bool> status-visible;
-    // The Copy button shows a checkmark for a moment after a copy.
+    // The Copy pill shows a checkmark for a moment after a copy.
     property <bool> copied;
     public function show-copied() {
         root.copied = false;
@@ -248,26 +279,33 @@ export component EditorWindow inherits Window {
         ti.select-all();
     }
 
-    // Tooltip under the hovered toolbar button. It appears after a short pause; moving to the
-    // next button within the hide delay keeps it up and just moves it.
+    // Space kept free for the floating pills (top) and the dock (bottom), so the picture never
+    // sits under them.
+    property <length> top-room: 64px;
+    property <length> bottom-room: 84px;
+
+    // Tooltip next to the hovered button: below the top pills, above the dock. It appears after a
+    // short pause; moving to the next button within the hide delay keeps it up and just moves it.
     property <string> tip-name;
     property <string> tip-key;
     property <length> tip-x;
+    property <length> tip-y;
     property <bool> tip-want;
     property <bool> tip-shown;
-    function hover-tip(name: string, key: string, x: length) {
+    function hover-tip(name: string, key: string, x: length, y: length) {
         if name != "" {
             root.tip-name = name;
             root.tip-key = key;
             root.tip-x = x;
+            root.tip-y = y;
             root.tip-want = true;
         } else {
             root.tip-want = false;
         }
     }
     // Tests only (see main.rs, F11).
-    public function show-tip(name: string, key: string, x: float) {
-        root.hover-tip(name, key, x * 1px);
+    public function show-tip(name: string, key: string, x: float, y: float) {
+        root.hover-tip(name, key, x * 1px, y * 1px);
         root.tip-shown = true;
     }
     Timer {
@@ -294,19 +332,275 @@ export component EditorWindow inherits Window {
             return reject;
         }
 
-        VerticalLayout {
-            // Toolbar
+        // Canvas: the whole window.
+        area := Rectangle {
+            background: Theme.bg;
+            clip: true;
+            // Show at 100 % (one image pixel per screen pixel) when it fits, else shrink to fit.
+            property <length> room-h: self.height - root.top-room - root.bottom-room;
+            property <float> fit: min(1, min((self.width - 24px) / (root.img-w * 1phx), (self.room-h - 24px) / (root.img-h * 1phx)));
+            img := Image {
+                source: root.canvas;
+                width: root.settling ? root.settle-w : root.img-w * 1phx * area.fit;
+                height: root.settling ? root.settle-h : root.img-h * 1phx * area.fit;
+                x: root.settling ? root.settle-x : (parent.width - root.img-w * 1phx * area.fit) / 2;
+                y: root.settling ? root.settle-y : root.top-room + (area.room-h - root.img-h * 1phx * area.fit) / 2;
+                animate x, y, width, height {
+                    duration: root.settle-anim ? 280ms : 0ms;
+                    easing: ease-in-out;
+                }
+                image-rendering: area.fit >= 1 ? pixelated : smooth;
+
+                ta := TouchArea {
+                    property <float> ix: self.mouse-x / max(1px, self.width) * root.img-w;
+                    property <float> iy: self.mouse-y / max(1px, self.height) * root.img-h;
+                    mouse-cursor: root.cursor == "move" ? MouseCursor.move : root.cursor == "nwse" ? MouseCursor.nwse-resize : root.cursor == "nesw" ? MouseCursor.nesw-resize : root.cursor == "ew" ? MouseCursor.ew-resize : root.cursor == "ns" ? MouseCursor.ns-resize : root.cursor == "text" ? MouseCursor.text : root.cursor == "default" ? MouseCursor.default : root.cursor == "none" ? MouseCursor.none : MouseCursor.crosshair;
+                    pointer-event(e) => {
+                        if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                            keys.focus();
+                            root.pointer("down", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                        } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                            root.pointer("up", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                        } else if e.kind == PointerEventKind.move {
+                            root.pointer("move", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                        }
+                    }
+                    double-clicked => {
+                        root.double-click(self.ix, self.iy);
+                    }
+                }
+
+                // Crop frame, iOS style. Drawn here in window pixels, not into the picture:
+                // shrinking a picture to fit drops its last rows, which hid the bottom line,
+                // and the lines keep one thickness at any zoom.
+                if root.crop-frame.show: cf := Rectangle {
+                    property <length> l: root.crop-frame.x0 * img.width;
+                    property <length> t: root.crop-frame.y0 * img.height;
+                    property <length> r: root.crop-frame.x1 * img.width;
+                    property <length> b: root.crop-frame.y1 * img.height;
+                    property <length> th: 5px;
+                    property <length> len: max(self.th * 2, min(22px, min((self.r - self.l) / 3, (self.b - self.t) / 3)));
+                    x: 0;
+                    y: 0;
+                    width: img.width;
+                    height: img.height;
+                    // Dim outside the frame.
+                    Rectangle { x: 0; y: 0; width: parent.width; height: parent.t; background: #0000008c; }
+                    Rectangle { x: 0; y: parent.b; width: parent.width; height: parent.height - parent.b; background: #0000008c; }
+                    Rectangle { x: 0; y: parent.t; width: parent.l; height: parent.b - parent.t; background: #0000008c; }
+                    Rectangle { x: parent.r; y: parent.t; width: parent.width - parent.r; height: parent.b - parent.t; background: #0000008c; }
+                    // Thirds grid while dragging.
+                    for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
+                        vertical: true;
+                        x: parent.l + (parent.r - parent.l) * k / 3 - 1px;
+                        y: parent.t;
+                        width: 1px;
+                        height: parent.b - parent.t;
+                    }
+                    for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
+                        x: parent.l;
+                        y: parent.t + (parent.b - parent.t) * k / 3 - 1px;
+                        width: parent.r - parent.l;
+                        height: 1px;
+                    }
+                    // Frame line on a soft dark line.
+                    Rectangle {
+                        x: parent.l;
+                        y: parent.t;
+                        width: parent.r - parent.l;
+                        height: parent.b - parent.t;
+                        border-width: 3px;
+                        border-color: #0000006e;
+                    }
+                    Rectangle {
+                        x: parent.l;
+                        y: parent.t;
+                        width: parent.r - parent.l;
+                        height: parent.b - parent.t;
+                        border-width: 1.5px;
+                        border-color: #ffffffeb;
+                    }
+                    // Corners.
+                    CropBar { x: parent.l; y: parent.t; width: parent.len; height: parent.th; }
+                    CropBar { x: parent.l; y: parent.t; width: parent.th; height: parent.len; }
+                    CropBar { x: parent.r - parent.len; y: parent.t; width: parent.len; height: parent.th; }
+                    CropBar { x: parent.r - parent.th; y: parent.t; width: parent.th; height: parent.len; }
+                    CropBar { x: parent.l; y: parent.b - parent.th; width: parent.len; height: parent.th; }
+                    CropBar { x: parent.l; y: parent.b - parent.len; width: parent.th; height: parent.len; }
+                    CropBar { x: parent.r - parent.len; y: parent.b - parent.th; width: parent.len; height: parent.th; }
+                    CropBar { x: parent.r - parent.th; y: parent.b - parent.len; width: parent.th; height: parent.len; }
+                    // Edge bars, when the edge is long enough.
+                    if cf.r - cf.l > cf.len * 4: CropBar {
+                        x: (parent.l + parent.r - parent.len) / 2; y: parent.t; width: parent.len; height: parent.th;
+                    }
+                    if cf.r - cf.l > cf.len * 4: CropBar {
+                        x: (parent.l + parent.r - parent.len) / 2; y: parent.b - parent.th; width: parent.len; height: parent.th;
+                    }
+                    if cf.b - cf.t > cf.len * 4: CropBar {
+                        x: parent.l; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
+                    }
+                    if cf.b - cf.t > cf.len * 4: CropBar {
+                        x: parent.r - parent.th; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
+                    }
+                }
+
+                // Brush outline: a white ring inside a dark one, readable on any image.
+                if root.brush > 0 && root.cursor == "none" && ta.has-hover: Rectangle {
+                    property <length> d: max(6px, root.brush / root.img-w * img.width);
+                    x: ta.mouse-x - self.width / 2;
+                    y: ta.mouse-y - self.height / 2;
+                    width: self.d + 2px;
+                    height: self.d + 2px;
+                    border-radius: self.width / 2;
+                    border-width: 1px;
+                    border-color: #00000099;
+                    Rectangle {
+                        x: 1px;
+                        y: 1px;
+                        width: parent.d;
+                        height: parent.d;
+                        border-radius: parent.d / 2;
+                        border-width: 1.5px;
+                        border-color: #ffffffe6;
+                    }
+                }
+            }
+
+            // Results of actions (saved, errors), bottom-left, gone after a few seconds.
+            Text {
+                x: 14px;
+                y: parent.height - self.height - 10px;
+                width: max(0px, (parent.width - dock.width) / 2 - 24px);
+                text: root.status;
+                visible: root.status-visible;
+                overflow: elide;
+                color: Theme.dim-text;
+                font-size: 11px;
+            }
+
+            // The text box sits over the canvas where the text will go.
             Rectangle {
-                height: 50px;
-                background: Theme.bar;
-                HorizontalLayout {
-                    padding-left: 8px;
-                    padding-right: 8px;
+                visible: root.text-editing;
+                x: img.x + root.text-x / root.img-w * img.width - 4px;
+                y: img.y + root.text-y / root.img-h * img.height - 2px;
+                width: max(80px, ti.preferred-width + 12px);
+                height: ti.preferred-height + 4px;
+                border-width: 1px;
+                border-color: Theme.accent;
+                border-radius: 3px;
+                background: transparent;
+                ti := TextInput {
+                    x: 4px;
+                    y: 2px;
+                    text <=> root.text-value;
+                    color: root.text-color;
+                    font-family: "Segoe UI";
+                    font-size: max(8px, root.text-size / root.img-w * img.width);
+                    single-line: true;
+                    accepted => {
+                        root.commit-text(self.text);
+                        keys.focus();
+                    }
+                }
+            }
+
+            // Top right: undo, redo, Copy, Save, Settings.
+            actions := HorizontalLayout {
+                x: parent.width - self.preferred-width - 16px;
+                y: 13px;
+                width: self.preferred-width;
+                height: 38px;
+                spacing: 6px;
+                IconButton {
+                    icon: @image-url("icons/undo.svg");
+                    tip: "Undo";
+                    key: "Ctrl+Z";
+                    enabled: root.can-undo;
+                    clicked => {
+                        root.action("undo");
+                        keys.focus();
+                    }
+                    hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
+                }
+                IconButton {
+                    icon: @image-url("icons/redo.svg");
+                    tip: "Redo";
+                    key: "Ctrl+Y";
+                    enabled: root.can-redo;
+                    clicked => {
+                        root.action("redo");
+                        keys.focus();
+                    }
+                    hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
+                }
+                Rectangle { width: 4px; }
+                PillButton {
+                    icon: @image-url("icons/copy.svg");
+                    label: "Copy";
+                    done: root.copied;
+                    tip: "Copy to the clipboard";
+                    key: "Ctrl+C";
+                    clicked => {
+                        root.action("copy");
+                        keys.focus();
+                    }
+                    hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
+                }
+                PillButton {
+                    icon: @image-url("icons/save.svg");
+                    label: "Save";
+                    primary: true;
+                    tip: "Save as PNG, JPEG or WebP";
+                    key: "Ctrl+S";
+                    clicked => {
+                        root.action("save");
+                        keys.focus();
+                    }
+                    hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
+                }
+                Rectangle {
+                    width: 38px;
+                    border-radius: 19px;
+                    background: st.has-hover ? Theme.hover.mix(Theme.pill, 0.5) : Theme.pill;
+                    border-width: 1px;
+                    border-color: Theme.panel-edge;
+                    drop-shadow-blur: 12px;
+                    drop-shadow-offset-y: 3px;
+                    drop-shadow-color: Theme.shadow;
+                    Image {
+                        source: @image-url("icons/settings.svg");
+                        width: 19px;
+                        height: 19px;
+                        colorize: Theme.text;
+                    }
+                    st := TouchArea {
+                        clicked => {
+                            root.action("settings");
+                            keys.focus();
+                        }
+                        changed has-hover => { root.hover-tip(self.has-hover ? "Settings" : "", "", parent.absolute-position.x + parent.width / 2, parent.absolute-position.y + parent.height / 2); }
+                    }
+                }
+            }
+
+            // Bottom: the floating dock with tools, colours and size.
+            dock := Rectangle {
+                width: dock-row.preferred-width;
+                height: 52px;
+                x: (parent.width - self.width) / 2;
+                y: parent.height - self.height - 18px;
+                border-radius: 16px;
+                background: Theme.panel;
+                border-width: 1px;
+                border-color: Theme.panel-edge;
+                drop-shadow-blur: 24px;
+                drop-shadow-offset-y: 8px;
+                drop-shadow-color: Theme.shadow;
+                dock-row := HorizontalLayout {
+                    padding: 7px;
                     spacing: 2px;
-                    alignment: stretch;
                     for t in root.tools: IconButton {
-                        y: 8px;
-                        glyph: t.glyph;
+                        icon: t.icon;
                         tip: t.tip;
                         key: t.key;
                         active: root.tool == t.id;
@@ -314,14 +608,10 @@ export component EditorWindow inherits Window {
                             root.tool-selected(t.id);
                             keys.focus();
                         }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
+                        hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
                     }
-                    Rectangle {
-                        width: 10px;
-                        Separator { }
-                    }
+                    Separator { }
                     for c[i] in root.palette: Swatch {
-                        y: 8px;
                         swatch: c;
                         active: i == root.color-index;
                         tip: "Colour";
@@ -330,22 +620,19 @@ export component EditorWindow inherits Window {
                             root.color-selected(i);
                             keys.focus();
                         }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
+                        hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
                     }
-                    Rectangle {
-                        width: 10px;
-                        Separator { }
-                    }
+                    Separator { }
                     IconButton {
-                        y: 8px;
-                        glyph: "\u{E949}";
+                        icon: @image-url("icons/minus.svg");
                         tip: "Thinner";
                         key: "[";
+                        icon-size: 18px;
                         clicked => {
                             root.size-step(-1);
                             keys.focus();
                         }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
+                        hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
                     }
                     Rectangle {
                         width: 26px;
@@ -355,260 +642,32 @@ export component EditorWindow inherits Window {
                             height: self.d;
                             border-radius: self.d / 2;
                             background: root.palette[root.color-index];
+                            border-width: 1px;
+                            border-color: Theme.swatch-edge;
                         }
                     }
                     IconButton {
-                        y: 8px;
-                        glyph: "\u{E948}";
+                        icon: @image-url("icons/plus.svg");
                         tip: "Thicker";
                         key: "]";
+                        icon-size: 18px;
                         clicked => {
                             root.size-step(1);
                             keys.focus();
                         }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
-                    }
-                    Rectangle {
-                        horizontal-stretch: 1;
-                    }
-                    IconButton {
-                        y: 8px;
-                        glyph: "\u{E7A7}";
-                        tip: "Undo";
-                        key: "Ctrl+Z";
-                        enabled: root.can-undo;
-                        clicked => {
-                            root.action("undo");
-                            keys.focus();
-                        }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
-                    }
-                    IconButton {
-                        y: 8px;
-                        glyph: "\u{E7A6}";
-                        tip: "Redo";
-                        key: "Ctrl+Y";
-                        enabled: root.can-redo;
-                        clicked => {
-                            root.action("redo");
-                            keys.focus();
-                        }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
-                    }
-                    Rectangle {
-                        width: 10px;
-                        Separator { }
-                    }
-                    TextButton {
-                        y: 8px;
-                        glyph: "\u{E8C8}";
-                        label: "Copy";
-                        done: root.copied;
-                        done-label: "Copied";
-                        tip: "Copy to the clipboard";
-                        key: "Ctrl+C";
-                        clicked => {
-                            root.action("copy");
-                            keys.focus();
-                        }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
-                    }
-                    Rectangle {
-                        width: 4px;
-                    }
-                    TextButton {
-                        y: 8px;
-                        glyph: "\u{E74E}";
-                        label: "Save";
-                        tip: "Save as PNG, JPEG or WebP";
-                        key: "Ctrl+S";
-                        primary: true;
-                        clicked => {
-                            root.action("save");
-                            keys.focus();
-                        }
-                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
-                    }
-                }
-            }
-
-            // Canvas
-            area := Rectangle {
-                background: Theme.bg;
-                clip: true;
-                // Show at 100 % (one image pixel per screen pixel) when it fits, else shrink to fit.
-                property <float> fit: min(1, min((self.width - 24px) / (root.img-w * 1phx), (self.height - 24px) / (root.img-h * 1phx)));
-                img := Image {
-                    source: root.canvas;
-                    width: root.settling ? root.settle-w : root.img-w * 1phx * area.fit;
-                    height: root.settling ? root.settle-h : root.img-h * 1phx * area.fit;
-                    x: root.settling ? root.settle-x : (parent.width - root.img-w * 1phx * area.fit) / 2;
-                    y: root.settling ? root.settle-y : (parent.height - root.img-h * 1phx * area.fit) / 2;
-                    animate x, y, width, height {
-                        duration: root.settle-anim ? 280ms : 0ms;
-                        easing: ease-in-out;
-                    }
-                    image-rendering: area.fit >= 1 ? pixelated : smooth;
-
-                    ta := TouchArea {
-                        property <float> ix: self.mouse-x / max(1px, self.width) * root.img-w;
-                        property <float> iy: self.mouse-y / max(1px, self.height) * root.img-h;
-                        mouse-cursor: root.cursor == "move" ? MouseCursor.move : root.cursor == "nwse" ? MouseCursor.nwse-resize : root.cursor == "nesw" ? MouseCursor.nesw-resize : root.cursor == "ew" ? MouseCursor.ew-resize : root.cursor == "ns" ? MouseCursor.ns-resize : root.cursor == "text" ? MouseCursor.text : root.cursor == "default" ? MouseCursor.default : root.cursor == "none" ? MouseCursor.none : MouseCursor.crosshair;
-                        pointer-event(e) => {
-                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
-                                keys.focus();
-                                root.pointer("down", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
-                            } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
-                                root.pointer("up", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
-                            } else if e.kind == PointerEventKind.move {
-                                root.pointer("move", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
-                            }
-                        }
-                        double-clicked => {
-                            root.double-click(self.ix, self.iy);
-                        }
-                    }
-
-                    // Crop frame, iOS style. Drawn here in window pixels, not into the picture:
-                    // shrinking a picture to fit drops its last rows, which hid the bottom line,
-                    // and the lines keep one thickness at any zoom.
-                    if root.crop-frame.show: cf := Rectangle {
-                        property <length> l: root.crop-frame.x0 * img.width;
-                        property <length> t: root.crop-frame.y0 * img.height;
-                        property <length> r: root.crop-frame.x1 * img.width;
-                        property <length> b: root.crop-frame.y1 * img.height;
-                        property <length> th: 5px;
-                        property <length> len: max(self.th * 2, min(22px, min((self.r - self.l) / 3, (self.b - self.t) / 3)));
-                        x: 0;
-                        y: 0;
-                        width: img.width;
-                        height: img.height;
-                        // Dim outside the frame.
-                        Rectangle { x: 0; y: 0; width: parent.width; height: parent.t; background: #0000008c; }
-                        Rectangle { x: 0; y: parent.b; width: parent.width; height: parent.height - parent.b; background: #0000008c; }
-                        Rectangle { x: 0; y: parent.t; width: parent.l; height: parent.b - parent.t; background: #0000008c; }
-                        Rectangle { x: parent.r; y: parent.t; width: parent.width - parent.r; height: parent.b - parent.t; background: #0000008c; }
-                        // Thirds grid while dragging.
-                        for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
-                            vertical: true;
-                            x: parent.l + (parent.r - parent.l) * k / 3 - 1px;
-                            y: parent.t;
-                            width: 1px;
-                            height: parent.b - parent.t;
-                        }
-                        for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
-                            x: parent.l;
-                            y: parent.t + (parent.b - parent.t) * k / 3 - 1px;
-                            width: parent.r - parent.l;
-                            height: 1px;
-                        }
-                        // Frame line on a soft dark line.
-                        Rectangle {
-                            x: parent.l;
-                            y: parent.t;
-                            width: parent.r - parent.l;
-                            height: parent.b - parent.t;
-                            border-width: 3px;
-                            border-color: #0000006e;
-                        }
-                        Rectangle {
-                            x: parent.l;
-                            y: parent.t;
-                            width: parent.r - parent.l;
-                            height: parent.b - parent.t;
-                            border-width: 1.5px;
-                            border-color: #ffffffeb;
-                        }
-                        // Corners.
-                        CropBar { x: parent.l; y: parent.t; width: parent.len; height: parent.th; }
-                        CropBar { x: parent.l; y: parent.t; width: parent.th; height: parent.len; }
-                        CropBar { x: parent.r - parent.len; y: parent.t; width: parent.len; height: parent.th; }
-                        CropBar { x: parent.r - parent.th; y: parent.t; width: parent.th; height: parent.len; }
-                        CropBar { x: parent.l; y: parent.b - parent.th; width: parent.len; height: parent.th; }
-                        CropBar { x: parent.l; y: parent.b - parent.len; width: parent.th; height: parent.len; }
-                        CropBar { x: parent.r - parent.len; y: parent.b - parent.th; width: parent.len; height: parent.th; }
-                        CropBar { x: parent.r - parent.th; y: parent.b - parent.len; width: parent.th; height: parent.len; }
-                        // Edge bars, when the edge is long enough.
-                        if cf.r - cf.l > cf.len * 4: CropBar {
-                            x: (parent.l + parent.r - parent.len) / 2; y: parent.t; width: parent.len; height: parent.th;
-                        }
-                        if cf.r - cf.l > cf.len * 4: CropBar {
-                            x: (parent.l + parent.r - parent.len) / 2; y: parent.b - parent.th; width: parent.len; height: parent.th;
-                        }
-                        if cf.b - cf.t > cf.len * 4: CropBar {
-                            x: parent.l; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
-                        }
-                        if cf.b - cf.t > cf.len * 4: CropBar {
-                            x: parent.r - parent.th; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
-                        }
-                    }
-
-                    // Brush outline: a white ring inside a dark one, readable on any image.
-                    if root.brush > 0 && root.cursor == "none" && ta.has-hover: Rectangle {
-                        property <length> d: max(6px, root.brush / root.img-w * img.width);
-                        x: ta.mouse-x - self.width / 2;
-                        y: ta.mouse-y - self.height / 2;
-                        width: self.d + 2px;
-                        height: self.d + 2px;
-                        border-radius: self.width / 2;
-                        border-width: 1px;
-                        border-color: #00000099;
-                        Rectangle {
-                            x: 1px;
-                            y: 1px;
-                            width: parent.d;
-                            height: parent.d;
-                            border-radius: parent.d / 2;
-                            border-width: 1.5px;
-                            border-color: #ffffffe6;
-                        }
-                    }
-                }
-
-                // Results of actions (copied, saved, errors), bottom-left, gone after a few seconds.
-                Text {
-                    x: 12px;
-                    y: parent.height - self.height - 6px;
-                    width: parent.width - 160px;
-                    text: root.status;
-                    visible: root.status-visible;
-                    overflow: elide;
-                    color: Theme.dim-text;
-                    font-size: 11px;
-                }
-
-                // The text box sits over the canvas where the text will go.
-                Rectangle {
-                    visible: root.text-editing;
-                    x: img.x + root.text-x / root.img-w * img.width - 4px;
-                    y: img.y + root.text-y / root.img-h * img.height - 2px;
-                    width: max(80px, ti.preferred-width + 12px);
-                    height: ti.preferred-height + 4px;
-                    border-width: 1px;
-                    border-color: Theme.accent;
-                    border-radius: 3px;
-                    background: transparent;
-                    ti := TextInput {
-                        x: 4px;
-                        y: 2px;
-                        text <=> root.text-value;
-                        color: root.text-color;
-                        font-family: "Segoe UI";
-                        font-size: max(8px, root.text-size / root.img-w * img.width);
-                        single-line: true;
-                        accepted => {
-                            root.commit-text(self.text);
-                            keys.focus();
-                        }
+                        hovered(n, k, x, y) => { root.hover-tip(n, k, x, y); }
                     }
                 }
             }
         }
-        // The tooltip, drawn over everything.
+
+        // The tooltip, drawn over everything: below the top pills, above the dock.
         tooltip := Rectangle {
             property <length> w: tip-row.preferred-width;
+            property <bool> below: root.tip-y < root.height / 2;
+            property <length> rest-y: self.below ? root.tip-y + 26px : root.tip-y - 26px - 30px;
             x: clamp(root.tip-x - self.w / 2, 6px, root.width - self.w - 6px);
-            y: root.tip-shown ? 55px : 51px;
+            y: root.tip-shown ? self.rest-y : self.rest-y + (self.below ? -4px : 4px);
             width: self.w;
             height: 30px;
             opacity: root.tip-shown ? 1 : 0;
@@ -618,10 +677,10 @@ export component EditorWindow inherits Window {
             border-radius: 8px;
             background: Theme.tip-bg;
             border-width: 1px;
-            border-color: #ffffff1f;
+            border-color: Theme.tip-edge;
             drop-shadow-blur: 14px;
             drop-shadow-offset-y: 4px;
-            drop-shadow-color: #00000080;
+            drop-shadow-color: Theme.shadow;
             tip-row := HorizontalLayout {
                 padding-left: 11px;
                 padding-right: root.tip-key != "" ? 6px : 11px;
@@ -637,9 +696,9 @@ export component EditorWindow inherits Window {
                     height: 20px;
                     width: cap.preferred-width + 12px;
                     border-radius: 5px;
-                    background: #ffffff12;
+                    background: Theme.key-bg;
                     border-width: 1px;
-                    border-color: #ffffff1a;
+                    border-color: Theme.tip-edge;
                     cap := Text {
                         text: root.tip-key;
                         color: Theme.dim-text;

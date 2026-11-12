@@ -378,6 +378,32 @@ fn cursor_monitor() -> (glint_core::Rect, f32) {
     }
 }
 
+/// Whether Windows apps use dark mode (Settings > Personalization > Colors). `GLINT_THEME=light` or
+/// `dark` overrides it (tests).
+fn system_dark() -> bool {
+    match std::env::var("GLINT_THEME").as_deref() {
+        Ok("light") => return false,
+        Ok("dark") => return true,
+        _ => {}
+    }
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut value: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            windows::core::w!("AppsUseLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut _),
+            Some(&mut size),
+        )
+    };
+    // Missing value: Windows' default is light.
+    ok.is_ok() && value == 0
+}
+
 fn main() {
     use windows::Win32::UI::HiDpi::{
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -444,7 +470,8 @@ fn main() {
     let app = Rc::new(RefCell::new(app));
 
     // Window size: the image at 100 % plus the toolbars, capped to 92 % of the work area.
-    let chrome = ((50.0 + 24.0) * scale) as i32;
+    // Room for the floating pills (64) and the dock (84) around the picture, plus a margin.
+    let chrome = ((64.0 + 84.0 + 24.0) * scale) as i32;
     let pad = (24.0 * scale) as i32;
     let w = (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100);
     let h = (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100);
@@ -459,7 +486,7 @@ fn main() {
         .iter()
         .map(|t| ToolItem {
             id: t.id().into(),
-            glyph: t.glyph().into(),
+            icon: slint::Image::load_from_svg_data(t.icon_svg()).unwrap_or_default(),
             tip: t.name().into(),
             key: t.key().to_string().into(),
         })
@@ -627,6 +654,20 @@ fn main() {
 
     refresh(&ui, &app.borrow());
     ui.invoke_focus_canvas();
+    // Light or dark, as Windows is set; checked again every 2 s so a switch applies live.
+    ui.global::<Theme>().set_dark(system_dark());
+    let theme_timer = slint::Timer::default();
+    {
+        let weak = ui.as_weak();
+        theme_timer.start(TimerMode::Repeated, Duration::from_secs(2), move || {
+            if let Some(ui) = weak.upgrade() {
+                let dark = system_dark();
+                if ui.global::<Theme>().get_dark() != dark {
+                    ui.global::<Theme>().set_dark(dark);
+                }
+            }
+        });
+    }
     let _ = ui.show();
     // Match stroke widths to the real window scale (the monitor guess can differ).
     app.borrow_mut().ed.scale = ui.window().scale_factor();
@@ -693,6 +734,15 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
             }
         }
         "save" => a.save(),
+        "settings" => {
+            // For now the settings file; a settings window is the next design step.
+            let p = glint_core::paths::config_file();
+            if !p.exists() {
+                let _ = glint_core::config::Config::default().save(&p);
+            }
+            let _ = std::process::Command::new("notepad.exe").arg(&p).spawn();
+            return false;
+        }
         "close" => {
             let _ = ui.hide();
             let _ = slint::quit_event_loop();
@@ -780,7 +830,7 @@ fn on_key(
     // Tests only: F11 opens the arrow tool's tooltip (a hidden desktop has no real cursor, so
     // Windows ends a posted hover at once).
     if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
-        ui.invoke_show_tip("Arrow".into(), "A".into(), 61.0);
+        ui.invoke_show_tip("Arrow".into(), "A".into(), 200.0, 200.0);
         return (true, false);
     }
     // Tests only: F10 plays the Copy button's checkmark (without touching the clipboard).

@@ -188,19 +188,19 @@ impl Tool {
         }
     }
 
-    /// Segoe Fluent Icons code point.
-    pub fn glyph(self) -> &'static str {
+    /// The tool's icon: a white SVG (bold outline) the UI colours for light and dark mode.
+    pub fn icon_svg(self) -> &'static [u8] {
         match self {
-            Tool::Select => "\u{E8B0}",
-            Tool::Arrow => "\u{E72A}",
-            Tool::Rect => "\u{E739}",
-            Tool::Ellipse => "\u{EA3A}",
-            Tool::Highlight => "\u{E7E6}",
-            Tool::Pen => "\u{EDFB}",
-            Tool::Text => "\u{E8D2}",
-            Tool::Step => "\u{F146}",
-            Tool::Blur => "\u{E727}",
-            Tool::Crop => "\u{E7A8}",
+            Tool::Select => include_bytes!("../ui/icons/select.svg"),
+            Tool::Arrow => include_bytes!("../ui/icons/arrow.svg"),
+            Tool::Rect => include_bytes!("../ui/icons/rect.svg"),
+            Tool::Ellipse => include_bytes!("../ui/icons/ellipse.svg"),
+            Tool::Highlight => include_bytes!("../ui/icons/highlight.svg"),
+            Tool::Pen => include_bytes!("../ui/icons/pen.svg"),
+            Tool::Text => include_bytes!("../ui/icons/text.svg"),
+            Tool::Step => include_bytes!("../ui/icons/step.svg"),
+            Tool::Blur => include_bytes!("../ui/icons/blur.svg"),
+            Tool::Crop => include_bytes!("../ui/icons/crop.svg"),
         }
     }
 }
