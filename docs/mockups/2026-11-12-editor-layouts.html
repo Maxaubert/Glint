@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Glint editor: 10 layouts</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  --page: #0d0d10; --ink: #ececf1; --dim: #8e8e9a;
+  --bg: #17171b; --bar: #202026; --bar2: #26262d; --edge: #303038; --hover: #ffffff12; --fg: #ececf1; --fg2: #a3a3ae;
+  --accent: #8b5cf6; --accent2: #a78bfa; --ok: #34d399; --canvas: #111114;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+html { background: var(--page); color: var(--ink); font: 15px/1.5 var(--font); }
+body { margin: 0; padding: 40px 32px 120px; }
+::selection { background: var(--accent); color: #fff; }
+header.page { max-width: 1240px; margin: 0 auto 24px; }
+header.page h1 { font: 700 30px/1.15 "Segoe UI Variable Display", "Segoe UI", sans-serif; margin: 0 0 8px; }
+header.page p { margin: 0; color: var(--dim); max-width: 75ch; }
+nav.jump { position: sticky; top: 0; z-index: 50; display: flex; gap: 6px; flex-wrap: wrap; max-width: 1240px; margin: 0 auto 28px; padding: 10px 0; background: linear-gradient(var(--page) 70%, transparent); }
+nav.jump a { color: var(--ink); text-decoration: none; font-size: 13px; padding: 5px 11px; border-radius: 999px; border: 1px solid #2a2a31; background: #16161a; }
+nav.jump a:hover { border-color: var(--accent); }
+section.look { max-width: 1240px; margin: 0 auto 72px; display: grid; grid-template-columns: 1fr 290px; gap: 28px; align-items: start; scroll-margin-top: 70px; }
+@media (max-width: 1150px) { section.look { grid-template-columns: 1fr; } }
+.about .num { font-size: 13px; color: var(--dim); }
+.about h2 { margin: 4px 0 8px; font: 700 22px/1.2 "Segoe UI Variable Display", "Segoe UI", sans-serif; }
+.about ul { margin: 0; padding-left: 18px; color: #c9c9d1; font-size: 14px; }
+.about li { margin-bottom: 5px; }
+.about .try { margin-top: 12px; font-size: 13px; color: var(--accent2); }
+
+/* ---------- shared pieces ---------- */
+.win { position: relative; background: var(--bg); color: var(--fg); border: 1px solid var(--edge); border-radius: 8px; overflow: hidden; box-shadow: 0 18px 50px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.4); height: 520px; display: flex; flex-direction: column; font-family: var(--font); }
+.win button { font-family: inherit; }
+.row { display: flex; align-items: center; }
+.grow { flex: 1; }
+.titlebar { height: 32px; flex: none; padding-left: 12px; gap: 8px; font-size: 12px; background: var(--bg); }
+.appicon { width: 16px; height: 16px; border-radius: 4px; background: linear-gradient(135deg, #a78bfa, #7c3aed); flex: none; }
+.fname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fsize { color: var(--fg2); white-space: nowrap; }
+.caps { display: flex; align-self: stretch; }
+.caps span { width: 44px; display: grid; place-items: center; color: var(--fg2); }
+.caps span:last-child:hover { background: #c42b1c; color: #fff; }
+.caps svg { width: 10px; height: 10px; }
+.caps.small span { width: 34px; }
+.tool { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--fg); cursor: pointer; position: relative; padding: 0; }
+.tool:hover { background: var(--hover); }
+.tool.on { background: var(--accent); color: #fff; }
+.tool svg { width: 18px; height: 18px; }
+.tool:focus-visible, .act:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+.sep { width: 1px; height: 22px; background: #ffffff1c; margin: 0 7px; flex: none; }
+.hsep { height: 1px; width: 22px; background: #ffffff1c; margin: 7px 0; }
+.sw { width: 24px; height: 30px; display: grid; place-items: center; border: 0; background: none; cursor: pointer; padding: 0; }
+.sw i { width: 18px; height: 18px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 1px #ffffff30; }
+.sw.on i { box-shadow: 0 0 0 2px var(--bar), 0 0 0 4px var(--fg); }
+.act { height: 34px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 0 13px 0 11px; border-radius: 6px; border: 0; cursor: pointer; font: 600 13px var(--font); color: var(--fg); background: #ffffff10; position: relative; overflow: hidden; white-space: nowrap; }
+.act:hover { background: #ffffff1a; }
+.act.save { background: var(--accent); color: #fff; }
+.act.save:hover { background: #9d74f7; }
+.act .ic { position: relative; width: 18px; height: 18px; flex: none; display: grid; place-items: center; }
+.act .ic svg { position: absolute; width: 18px; height: 18px; transition: opacity .18s, transform .3s; }
+.act .chk { opacity: 0; transform: scale(.5); }
+.canvas { flex: 1; position: relative; background: var(--canvas); display: grid; place-items: center; overflow: hidden; min-height: 0; }
+.shot { position: relative; width: 560px; max-width: 84%; aspect-ratio: 16/9; box-shadow: 0 6px 24px rgba(0,0,0,.5); border-radius: 2px; overflow: hidden; }
+.shot > svg { display: block; width: 100%; height: 100%; }
+.marks { position: absolute; inset: 0; pointer-events: none; }
+kbd { font: 600 10px var(--font); color: var(--fg2); border: 1px solid #ffffff26; border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #ffffff0a; }
+.slider { position: relative; height: 4px; border-radius: 2px; background: #ffffff20; width: 120px; }
+.slider b { position: absolute; left: 0; top: 0; bottom: 0; width: 40%; background: var(--accent); border-radius: 2px; }
+.slider i { position: absolute; left: 40%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0008; }
+
+/* icon styles */
+.ic-thin svg { stroke-width: 1.3; }
+.ic-bold svg { stroke-width: 2.3; }
+.ic-duo svg .f { fill: currentColor; fill-opacity: .28; }
+.ic-fill svg .f { fill: currentColor; fill-opacity: 1; }
+.ic-fill .tool.on svg .f { fill: #fff; }
+.ic-fill svg .f + .x { stroke: var(--bar); }
+
+/* copy states shared */
+.done .act.copy .cpy { opacity: 0; transform: scale(.5); }
+.done .act.copy .chk { opacity: 1; transform: none; }
+.chk path { stroke-dasharray: 24; stroke-dashoffset: 24; }
+.done .chk path { stroke-dashoffset: 0; transition: stroke-dashoffset .35s cubic-bezier(.65,0,.35,1) .12s; }
+
+/* ===== 1. Frameless strip ===== */
+.l1 .strip { height: 46px; flex: none; background: var(--bar); padding: 0 0 0 12px; gap: 2px; border-bottom: 1px solid #ffffff0d; }
+.l1 .who { display: flex; flex-direction: column; line-height: 1.15; margin: 0 14px 0 8px; min-width: 0; max-width: 180px; }
+.l1 .who .fname { font-size: 12px; font-weight: 600; }
+.l1 .who .fsize { font-size: 11px; }
+.l1.done .act.copy { background: var(--ok); color: #0b2b1f; transition: background .25s; }
+
+/* ===== 2. Floating dock ===== */
+.l2 .canvas { background: radial-gradient(ellipse at 50% 40%, #1c1c22, #0f0f12 70%); }
+.l2 .ghostbar { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 8px; padding-left: 14px; font-size: 12px; color: var(--fg2); z-index: 5; }
+.l2 .dock { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 6px; background: #1f1f25ee; border: 1px solid #ffffff14; border-radius: 16px; box-shadow: 0 12px 30px #0009; z-index: 5; }
+.l2 .dock .tool { border-radius: 11px; width: 38px; height: 38px; }
+.l2 .pills { position: absolute; top: 44px; right: 16px; display: flex; gap: 6px; z-index: 5; }
+.l2 .pills .act { border-radius: 999px; background: #1f1f25ee; border: 1px solid #ffffff14; }
+.l2 .pills .act.save { background: var(--accent); border-color: transparent; }
+.l2 .fly { position: absolute; z-index: 20; border-radius: 3px; background-size: cover; box-shadow: 0 8px 22px #000a; transition: all .55s cubic-bezier(.6,0,.2,1); pointer-events: none; }
+.l2.done .pills .act.copy { background: #ffffff; color: #17171b; }
+
+/* ===== 3. Left rail ===== */
+.l3 .body { flex: 1; display: flex; min-height: 0; }
+.l3 .rail { width: 52px; flex: none; background: var(--bar); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; border-right: 1px solid #ffffff0d; }
+.l3 .rail .tool.on { background: transparent; color: var(--accent2); }
+.l3 .rail .tool.on::before { content: ""; position: absolute; left: -9px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent2); }
+.l3 .rail .sw { height: 24px; }
+.l3 .titlebar .act { height: 26px; font-size: 12px; padding: 0 10px; }
+.l3 .titlebar .act .ic, .l3 .titlebar .act .ic svg { width: 15px; height: 15px; }
+.l3 .lblwrap { height: 18px; width: 50px; overflow: hidden; display: inline-block; text-align: left; }
+.l3 .lblwrap span { display: block; transition: transform .35s cubic-bezier(.7,0,.2,1); }
+.l3.done .lblwrap span { transform: translateY(-18px); }
+
+/* ===== 4. Unified title (Paint style) ===== */
+.l4 .unified { height: 48px; flex: none; background: var(--bar); padding-left: 10px; gap: 2px; }
+.l4 .unified .fname { font-size: 12px; color: var(--fg2); margin: 0 10px 0 6px; max-width: 120px; }
+.l4 .seg { display: flex; background: #ffffff0a; border-radius: 8px; padding: 2px; }
+.l4 .seg .tool { width: 30px; height: 30px; }
+.l4 .l4sw { display: flex; }
+.l4 .l4sw .sw { width: 20px; }
+.l4 .l4sw .sw i { width: 15px; height: 15px; }
+.l4 .unified .act { height: 30px; padding: 0 10px; }
+.l4 .infobar { height: 26px; flex: none; padding: 0 6px 0 12px; font-size: 11.5px; color: var(--fg2); background: var(--bg); gap: 14px; }
+.l4 .infobar .tool { width: 24px; height: 24px; }
+.l4 .infobar .tool svg { width: 14px; height: 14px; }
+
+/* ===== 5. Labelled groups ===== */
+.l5 .ribbon { flex: none; background: var(--bar); padding: 6px 8px 4px; gap: 4px; align-items: stretch; border-bottom: 1px solid #ffffff0d; }
+.l5 .grp { display: flex; flex-direction: column; align-items: center; padding: 0 6px; border-right: 1px solid #ffffff12; }
+.l5 .grp:last-of-type { border-right: 0; }
+.l5 .grp .items { display: flex; gap: 2px; }
+.l5 .grp .cap { font-size: 10.5px; color: var(--fg2); margin-top: 2px; letter-spacing: .02em; }
+.l5 .ltool { width: 50px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 0; border-radius: 6px; background: none; color: var(--fg); cursor: pointer; font-size: 10.5px; }
+.l5 .ltool svg { width: 20px; height: 20px; }
+.l5 .ltool:hover { background: var(--hover); }
+.l5 .ltool.on { background: #8b5cf633; color: #fff; box-shadow: inset 0 0 0 1px #8b5cf6; }
+.l5 .bigact { width: 60px; height: 50px; flex-direction: column; gap: 2px; padding: 0; font-size: 11px; }
+.l5 .print { position: absolute; z-index: 20; width: 110px; padding: 6px 6px 22px; background: #fbf8f1; border-radius: 2px; box-shadow: 0 10px 24px #000a; }
+.l5 .print .ph { aspect-ratio: 16/9; background: #222 center/cover; filter: brightness(.12) saturate(0); transition: filter 1.4s ease-out .4s; }
+.l5 .print.dev .ph { filter: none; }
+.l5 .print .cp { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font: italic 600 12px Georgia, serif; color: #333; }
+
+/* ===== 6. Contextual second row ===== */
+.l6 .row1 { height: 46px; flex: none; background: var(--bar); padding: 0 10px; gap: 2px; }
+.l6 .row2 { height: 38px; flex: none; background: var(--bar2); padding: 0 14px; gap: 12px; font-size: 12px; color: var(--fg2); border-bottom: 1px solid #ffffff0d; }
+.l6 .row2 .lab { color: var(--fg); font-weight: 600; margin-right: 4px; }
+.l6 .chipset { display: flex; gap: 4px; }
+.l6 .chip { height: 24px; padding: 0 9px; display: grid; place-items: center; border-radius: 12px; border: 1px solid #ffffff20; font-size: 11.5px; color: var(--fg); background: none; cursor: pointer; }
+.l6 .chip.on { background: #fff; color: #17171b; border-color: #fff; }
+.l6 .toastc { position: absolute; z-index: 20; height: 34px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 8px; background: #2b2b33; border: 1px solid #ffffff1a; box-shadow: 0 10px 24px #0009; font-size: 12.5px; white-space: nowrap; opacity: 0; transform: translateY(-6px); transition: all .3s cubic-bezier(.2,.9,.3,1); }
+.l6 .toastc.in { opacity: 1; transform: none; }
+.l6 .toastc .tb { width: 34px; height: 20px; border-radius: 2px; background-size: cover; }
+
+/* ===== 7. Canvas first ===== */
+.l7 .canvas { background: #0f0f12; }
+.l7 .corner { position: absolute; top: 10px; left: 12px; font-size: 12px; color: var(--fg2); z-index: 5; display: flex; gap: 8px; align-items: center; }
+.l7 .vdock { position: absolute; right: 14px; top: 44px; display: flex; flex-direction: column; gap: 2px; padding: 5px; background: #1f1f25ee; border: 1px solid #ffffff14; border-radius: 14px; z-index: 5; }
+.l7 .vdock .tool { width: 28px; height: 28px; border-radius: 8px; }
+.l7 .vdock .tool svg { width: 16px; height: 16px; }
+.l7 .colorbtn { width: 28px; height: 28px; display: grid; place-items: center; }
+.l7 .colorbtn i { width: 18px; height: 18px; border-radius: 50%; background: #ff3b30; box-shadow: 0 0 0 2px #1f1f25, 0 0 0 3px #ffffff60; }
+.l7 .fab { position: absolute; right: 70px; bottom: 22px; width: 56px; height: 56px; padding: 0; border-radius: 50%; background: var(--accent); color: #fff; box-shadow: 0 10px 24px #8b5cf655, 0 2px 6px #0008; z-index: 6; transition: background .25s, transform .2s; }
+.l7 .fab .ic, .l7 .fab .ic svg { width: 22px; height: 22px; }
+.l7 .fab .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--ok); opacity: 0; }
+.l7.done .fab { background: var(--ok); color: #0b2b1f; }
+.l7.done .fab .ring { animation: ring .6s ease-out; }
+@keyframes ring { from { transform: scale(1); opacity: .9; } to { transform: scale(1.9); opacity: 0; } }
+.l7 .savemini { position: absolute; right: 136px; bottom: 32px; height: 36px; border-radius: 18px; z-index: 6; background: #1f1f25ee; border: 1px solid #ffffff14; }
+.l7 .caps { position: absolute; top: 0; right: 0; height: 32px; z-index: 6; }
+
+/* ===== 8. Keyboard first ===== */
+.l8 .row1 { height: 48px; flex: none; background: var(--bar); padding: 0 10px; gap: 2px; }
+.l8 .tool { width: 38px; height: 38px; }
+.l8 .tool kbd { position: absolute; right: 1px; bottom: 1px; font-size: 8.5px; padding: 0 3px; border-width: 1px; line-height: 12px; background: #17171bcc; }
+.l8 .tool.on kbd { color: #fff; border-color: #ffffff70; background: #6d3fe0; }
+.l8 .act kbd { margin-left: 4px; transition: transform .1s, border-bottom-width .1s; }
+.l8.press .act.copy kbd { transform: translateY(1px); border-bottom-width: 1px; }
+.l8.done .act.copy { box-shadow: inset 0 0 0 1px var(--ok); color: var(--ok); }
+
+/* ===== 9. Bottom bar ===== */
+.l9 .bottom { height: 56px; flex: none; background: var(--bar); padding: 0 12px; gap: 2px; border-top: 1px solid #ffffff0d; }
+.l9 .bottom .act { height: 38px; border-radius: 19px; padding: 0 16px 0 14px; }
+.l9 .act.copy .fillbar { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #34d39933; }
+.l9.done .act.copy .fillbar { width: 100%; transition: width .45s cubic-bezier(.6,0,.2,1); }
+.l9.done .act.copy { color: var(--ok); }
+
+/* ===== 10. Inspector ===== */
+.l10 .body { flex: 1; display: flex; min-height: 0; }
+.l10 .rail { width: 50px; flex: none; background: var(--bar); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; }
+.l10 .panel { width: 230px; flex: none; background: var(--bar); border-left: 1px solid #ffffff0d; padding: 14px; display: flex; flex-direction: column; gap: 14px; font-size: 12px; }
+.l10 .panel h4 { margin: 0 0 6px; font-size: 11px; font-weight: 600; color: var(--fg2); text-transform: uppercase; letter-spacing: .06em; }
+.l10 .grid6 { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.l10 .grid6 .sw { width: auto; height: 26px; }
+.l10 .grid6 .sw i { width: 22px; height: 22px; }
+.l10 .preview { height: 40px; border-radius: 6px; background: #ffffff08; display: grid; place-items: center; }
+.l10 .panel .act { width: 100%; height: 38px; }
+.l10 .act.copy .wipe { position: absolute; inset: 0; background: var(--ok); transform: scaleX(0); transform-origin: left; }
+.l10.done .act.copy .wipe { transform: none; transition: transform .4s cubic-bezier(.6,0,.2,1); }
+.l10.done .act.copy { color: #0b2b1f; }
+.l10 .act.copy > *:not(.wipe) { position: relative; }
+.l10 .ghost { position: absolute; z-index: 20; border-radius: 3px; background-size: cover; pointer-events: none; transition: all .5s cubic-bezier(.6,0,.2,1); box-shadow: 0 8px 20px #000a; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 1ms !important; animation-duration: 1ms !important; } }
+</style>
+</head>
+<body>
+<header class="page">
+  <h1>Glint editor: 10 layouts</h1>
+  <p>Same colours everywhere; what changes is the structure: title bar or none, where the tools live, icon style, labels or not, and how Copy confirms. Click <strong>Copy</strong> in any window (or click a window and press Ctrl+C) to see its copy feedback. Tools and colours are clickable. The screenshot inside is made-up sample content.</p>
+</header>
+<nav class="jump" aria-label="Layouts"></nav>
+<main id="looks"></main>
+
+<script>
+// Icons: closed shapes carry class "f" so duotone and filled styles can fill them.
+const ICON = {
+  select: '<path class="f" d="M6 3.5l12.5 7.2-5.6 1.6-2.6 5.4z"/>',
+  arrow: '<path d="M5 19L18.5 5.5M10 5h9v9"/>',
+  rect: '<rect class="f" x="4" y="6" width="16" height="12" rx="1.5"/>',
+  ellipse: '<ellipse class="f" cx="12" cy="12" rx="8.5" ry="6.2"/>',
+  highlight: '<path class="f" d="M14.5 4.5l5 5-7.5 7.5H7v-5z"/><path d="M4 21h9"/>',
+  pen: '<path class="f" d="M4.5 19.5l1-4.2L16 4.8a2 2 0 012.9 0l.3.3a2 2 0 010 2.9L8.7 18.5z"/>',
+  text: '<path d="M5 7V5h14v2M12 5v14M9 19h6"/>',
+  step: '<circle class="f" cx="12" cy="12" r="8"/><path class="x" d="M10.5 9.2L12.6 8v8"/>',
+  blur: '<rect class="f" x="4" y="4" width="16" height="16" rx="2.5"/><path class="x" d="M4.5 13.5l9-9M8 19.5l11.5-11.5M14.5 19.8l5.3-5.3"/>',
+  crop: '<path d="M7 3v14h14M3 7h14v14"/>',
+  undo: '<path d="M9 14L4.5 9.5 9 5M5 9.5h9.5a5 5 0 010 10H11"/>',
+  redo: '<path d="M15 14l4.5-4.5L15 5M19 9.5H9.5a5 5 0 000 10H13"/>',
+  copy: '<rect class="f" x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 00-1.5-1.5H6A1.5 1.5 0 004.5 6v8A1.5 1.5 0 006 15.5h2.5"/>',
+  save: '<path class="f" d="M5.5 4h10l3 3v12.5a.5.5 0 01-.5.5H6a.5.5 0 01-.5-.5z"/><path class="x" d="M8.5 4v4.5h6V4M8.5 20v-6h7v6"/>',
+  check: '<path d="M5 12.8l4.4 4.4L19.2 7.4"/>',
+  minus: '<path d="M6 12h12"/>', plus: '<path d="M6 12h12M12 6v12"/>',
+};
+const svg = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+const TOOLS = [['select','Select','V'],['arrow','Arrow','A'],['rect','Box','R'],['ellipse','Circle','O'],['highlight','Highlight','H'],['pen','Pen','P'],['text','Text','T'],['step','Step','N'],['blur','Blur','B'],['crop','Crop','C']];
+const COLORS = ['#ff3b30','#ffcc00','#34c759','#0a84ff','#ffffff','#1c1c1e'];
+const SHOT = `<svg viewBox="0 0 640 360" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, sans-serif"><rect width="640" height="360" fill="#fff"/><rect width="640" height="40" fill="#f3f4f6"/><circle cx="20" cy="20" r="6" fill="#d1d5db"/><rect x="36" y="14" width="120" height="12" rx="3" fill="#d1d5db"/><rect x="460" y="12" width="160" height="16" rx="8" fill="#e5e7eb"/><text x="24" y="76" font-size="18" font-weight="700" fill="#111827">Pipelines</text><text x="24" y="98" font-size="12" fill="#6b7280">glint · main · 4 runs today</text><g font-size="13"><rect x="24" y="116" width="592" height="44" rx="6" fill="#f9fafb" stroke="#e5e7eb"/><circle cx="46" cy="138" r="7" fill="#22c55e"/><text x="62" y="142" fill="#111827">release · v0.3.0</text><text x="500" y="142" fill="#6b7280">2m 41s</text><rect x="24" y="168" width="592" height="44" rx="6" fill="#fef2f2" stroke="#fecaca"/><circle cx="46" cy="190" r="7" fill="#ef4444"/><text x="62" y="194" fill="#991b1b" font-weight="600">ci · editor tests failed (2)</text><text x="500" y="194" fill="#991b1b">0m 58s</text><rect x="24" y="220" width="592" height="44" rx="6" fill="#f9fafb" stroke="#e5e7eb"/><circle cx="46" cy="242" r="7" fill="#22c55e"/><text x="62" y="246" fill="#111827">ci · daemon</text><text x="500" y="246" fill="#6b7280">3m 02s</text><rect x="24" y="272" width="592" height="44" rx="6" fill="#f9fafb" stroke="#e5e7eb"/><circle cx="46" cy="294" r="7" fill="#f59e0b"/><text x="62" y="298" fill="#111827">nightly · e2e</text><text x="500" y="298" fill="#6b7280">queued</text></g></svg>`;
+const SHOT_URI = 'data:image/svg+xml;utf8,' + encodeURIComponent(SHOT);
+const MARKS = `<svg class="marks" viewBox="0 0 640 360" aria-hidden="true"><g fill="none" stroke="#ff3b30" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="185" cy="191" rx="168" ry="34" stroke-width="5" transform="rotate(-2 185 191)"/><path d="M520 92 C470 110 430 130 372 168" stroke-width="6"/><path d="M372 168 l26 -4 M372 168 l9 -24" stroke-width="6"/></g></svg>`;
+const shot = `<div class="shot">${SHOT}${MARKS}</div>`;
+const CAPS = (small) => `<span class="caps${small ? ' small' : ''}"><span><svg viewBox="0 0 10 10"><path d="M1 5h8" stroke="currentColor"/></svg></span><span><svg viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor"/></svg></span><span><svg viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor"/></svg></span></span>`;
+const NAME = 'Glint_2026-11-12_16-15-53.png', SIZE = '2524 × 1259';
+
+const tools = (o = {}) => TOOLS.map(([k, n, key], i) => `<button class="tool${i === 1 ? ' on' : ''}" data-tool title="${n} (${key})" aria-label="${n}">${svg(k)}${o.keys ? `<kbd>${key}</kbd>` : ''}</button>`).join('');
+const swatches = () => COLORS.map((c, i) => `<button class="sw${i === 0 ? ' on' : ''}" style="--c:${c}" aria-label="Colour ${i + 1}"><i></i></button>`).join('');
+const size = () => `<button class="tool" aria-label="Thinner">${svg('minus')}</button><span style="width:22px;display:grid;place-items:center"><i style="width:10px;height:10px;border-radius:50%;background:#ff3b30;display:block" class="sizedot"></i></span><button class="tool" aria-label="Thicker">${svg('plus')}</button>`;
+const undo = () => `<button class="tool" aria-label="Undo">${svg('undo')}</button><button class="tool" aria-label="Redo" style="opacity:.4">${svg('redo')}</button>`;
+const copyBtn = (label = 'Copy', extra = '', cls = '') => `<button class="act copy ${cls}" aria-label="Copy to the clipboard">${extra}<span class="ic">${svg('copy', 'cpy')}${svg('check', 'chk')}</span>${label}</button>`;
+const saveBtn = (label = 'Save', cls = '') => `<button class="act save ${cls}" aria-label="Save"><span class="ic">${svg('save')}</span>${label}</button>`;
+
+const LAYOUTS = [
+  { title: 'Frameless strip', icons: 'ic-reg', points: ['No Windows title bar: one 46 px strip is the whole chrome and also the drag area.', 'File name and size sit stacked at the left, small.', 'Window buttons share the strip at the right.', 'Outline icons, 1.7 px.', 'Copy: the icon is redrawn as a check and the button turns green.'],
+    html: () => `<div class="row strip"><span class="appicon"></span><div class="who"><span class="fname">${NAME}</span><span class="fsize">${SIZE}</span></div>${tools()}<span class="sep"></span>${swatches()}<span class="sep"></span>${size()}<span class="grow"></span>${undo()}<span class="sep"></span>${copyBtn()}<span style="width:6px"></span>${saveBtn()}<span style="width:6px"></span>${CAPS(true)}</div><div class="canvas">${shot}</div>` },
+  { title: 'Floating dock', icons: 'ic-bold', points: ['No title bar and no toolbar strip: the picture fills the window.', 'Tools, colours and size float in a rounded dock at the bottom.', 'Copy and Save are pills at the top right; name and size are faint text top-left.', 'Bold rounded icons, 2.3 px.', 'Copy: a small copy of the picture flies into the Copy pill, which turns white with a check.'],
+    html: () => `<div class="canvas"><div class="ghostbar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">${SIZE}</span><span class="grow"></span>${CAPS(true)}</div>${shot}<div class="pills">${undo()}${copyBtn()}${saveBtn()}</div><div class="dock">${tools()}<span class="sep"></span>${swatches()}<span class="sep"></span>${size()}</div></div>` },
+  { title: 'Left rail', icons: 'ic-thin', points: ['Normal title bar with name and size; Copy and Save live in the title bar, compact.', 'Tools stand in a vertical rail on the left, colours and size at the rail bottom.', 'Active tool: purple icon with a bar at its edge, no filled square.', 'Thin icons, 1.3 px.', 'Copy: the label rolls up from "Copy" to "Copied" while the icon becomes a check.'],
+    html: () => `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${copyBtn('<span class="lblwrap"><span>Copy</span><span>Copied</span></span>')}<span style="width:6px"></span>${saveBtn()}<span style="width:8px"></span>${CAPS()}</div><div class="body"><div class="rail">${tools()}<span class="hsep"></span>${COLORS.slice(0, 6).map((c, i) => `<button class="sw${i === 0 ? ' on' : ''}" style="--c:${c}" aria-label="Colour ${i + 1}"><i></i></button>`).join('')}<span class="hsep"></span><button class="tool" aria-label="Thicker">${svg('plus')}</button><button class="tool" aria-label="Thinner">${svg('minus')}</button></div><div class="canvas">${shot}</div></div>` },
+  { title: 'Title bar is the toolbar', icons: 'ic-fill', points: ['Like Windows 11 Paint: tools sit inside the title bar row, no separate toolbar.', 'Tools in a soft segmented group; filled icons.', 'A thin info line below shows name, size and zoom.', 'Maximum picture area with a native feel.', 'Copy: ripple, then a check.'],
+    html: () => `<div class="row unified"><span class="appicon"></span><span class="fname">${NAME}</span><div class="seg">${tools()}</div><span class="sep"></span><span class="l4sw">${swatches()}</span><span class="grow"></span>${copyBtn()}<span style="width:6px"></span>${saveBtn()}<span style="width:6px"></span>${CAPS()}</div><div class="row infobar"><span>${NAME}</span><span>${SIZE} px</span><span>100 %</span><span class="grow"></span>${size()}${undo()}</div><div class="canvas">${shot}</div>` },
+  { title: 'Labelled groups', icons: 'ic-duo', points: ['Every tool has its name under the icon, so nothing needs hovering to understand.', 'Tools grouped: Point (select, arrow, box, circle), Write (highlight, pen, text, step), Hide (blur), Image (crop).', 'Big labelled Copy and Save at the end.', 'Duotone icons (outline plus a soft fill).', 'Copy: a tiny instant print slides out and develops.'],
+    html: () => {
+      const g = (cap, ids) => `<div class="grp"><div class="items">${ids.map(i => { const [k, n, key] = TOOLS[i]; return `<button class="ltool${i === 1 ? ' on' : ''}" data-tool aria-label="${n}" title="${n} (${key})">${svg(k)}<span>${n}</span></button>`; }).join('')}</div><span class="cap">${cap}</span></div>`;
+      return `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${CAPS()}</div><div class="row ribbon">${g('Point', [0, 1, 2, 3])}${g('Write', [4, 5, 6, 7])}${g('Hide', [8])}${g('Image', [9])}<div class="grp"><div class="items" style="flex-wrap:wrap;width:84px;align-content:center;height:50px">${swatches()}</div><span class="cap">Colour</span></div><span class="grow"></span><div class="grp"><div class="items">${copyBtn('Copy', '', 'bigact')}${saveBtn('Save', 'bigact')}</div><span class="cap">&nbsp;</span></div></div><div class="canvas">${shot}</div>`;
+    } },
+  { title: 'Contextual second row', icons: 'ic-reg', points: ['Row one: tools, undo, Copy, Save.', 'Row two changes with the tool: for the arrow it shows colour, a width slider and arrow styles (straight, curved, double).', 'Fewer controls on screen at once; more options per tool.', 'Outline icons.', 'Copy: a small toast with a thumbnail drops from the button: "Copied 2524 × 1259".'],
+    html: () => `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${CAPS()}</div><div class="row row1">${tools()}<span class="grow"></span>${undo()}<span class="sep"></span>${copyBtn()}<span style="width:6px"></span>${saveBtn()}</div><div class="row row2"><span class="lab">Arrow</span>${swatches()}<span class="sep"></span><span>Width</span><div class="slider"><b></b><i></i></div><span class="sep"></span><div class="chipset"><button class="chip on">Straight</button><button class="chip">Curved</button><button class="chip">Double</button></div></div><div class="canvas">${shot}</div>` },
+  { title: 'Canvas first', icons: 'ic-reg', points: ['Almost no chrome: name and size in a corner, window buttons top-right.', 'A slim vertical dock on the right holds the tools and one colour dot (click for the palette).', 'One big round Copy button bottom-right, Save as a small pill next to it.', 'Small outline icons, 16 px.', 'Copy: the round button turns green with a check and a ring pulses out.'],
+    html: () => `<div class="canvas"><div class="corner"><span class="appicon"></span><span>${NAME}</span><span class="fsize">${SIZE}</span></div>${CAPS(true)}${shot}<div class="vdock">${tools()}<span class="hsep" style="align-self:center"></span><span class="colorbtn"><i></i></span>${undo()}</div><button class="act savemini" aria-label="Save"><span class="ic">${svg('save')}</span>Save</button><button class="act copy fab" aria-label="Copy to the clipboard"><span class="ring"></span><span class="ic">${svg('copy', 'cpy')}${svg('check', 'chk')}</span></button></div>` },
+  { title: 'Keyboard first', icons: 'ic-thin', points: ['Every tool button shows its shortcut letter in a tiny key cap.', 'Copy and Save show "Ctrl C" and "Ctrl S".', 'Teaches the keys while you click; good for fast repeat use.', 'Thin icons.', 'Copy: the Ctrl C key cap presses down, then the button outlines green with a check.'],
+    html: () => `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${CAPS()}</div><div class="row row1">${tools({ keys: true })}<span class="sep"></span>${swatches()}<span class="sep"></span>${size()}<span class="grow"></span>${undo()}<span class="sep"></span><button class="act copy" aria-label="Copy to the clipboard"><span class="ic">${svg('copy', 'cpy')}${svg('check', 'chk')}</span>Copy<kbd>Ctrl C</kbd></button><span style="width:6px"></span><button class="act save" aria-label="Save"><span class="ic">${svg('save')}</span>Save<kbd style="color:#fff;border-color:#ffffff60">Ctrl S</kbd></button></div><div class="canvas">${shot}</div>` },
+  { title: 'Bottom bar', icons: 'ic-bold', points: ['Normal title bar; the picture comes straight under it.', 'Everything else lives in one bar at the bottom, like the Photos app.', 'Rounded pill buttons for Copy and Save, larger than usual.', 'Bold icons.', 'Copy: a green fill sweeps across the button, then the check.'],
+    html: () => `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${CAPS()}</div><div class="canvas">${shot}</div><div class="row bottom">${tools()}<span class="sep"></span>${swatches()}<span class="sep"></span>${size()}<span class="grow"></span>${undo()}<span class="sep"></span>${copyBtn('Copy', '<span class="fillbar"></span>')}<span style="width:8px"></span>${saveBtn()}</div>` },
+  { title: 'Inspector panel', icons: 'ic-duo', points: ['Tools in a left rail; a right panel holds colour, width with a live preview stroke, and the actions.', 'Copy and Save are full-width buttons at the bottom of the panel.', 'Most room for options; the picture gets a little less width.', 'Duotone icons.', 'Copy: green wipes across the button and a ghost of the picture slides into it.'],
+    html: () => `<div class="row titlebar"><span class="appicon"></span><span class="fname">${NAME}</span><span class="fsize">(${SIZE})</span><span class="grow"></span>${CAPS()}</div><div class="body"><div class="rail">${tools()}<span class="hsep"></span>${undo()}</div><div class="canvas">${shot}</div><div class="panel"><div><h4>Colour</h4><div class="grid6">${swatches()}</div></div><div><h4>Width</h4><div class="slider" style="width:100%"><b></b><i></i></div></div><div class="preview"><svg width="160" height="20"><path d="M6 14 C50 2 110 2 154 10" stroke="#ff3b30" stroke-width="5" fill="none" stroke-linecap="round"/></svg></div><span class="grow"></span>${copyBtn('Copy', '<span class="wipe"></span>')}${saveBtn()}</div></div>` },
+];
+
+const main = document.getElementById('looks'), nav = document.querySelector('nav.jump');
+LAYOUTS.forEach((L, i) => {
+  const n = i + 1;
+  nav.insertAdjacentHTML('beforeend', `<a href="#l-${n}">${n}. ${L.title}</a>`);
+  main.insertAdjacentHTML('beforeend', `<section class="look" id="l-${n}"><div class="win l${n} ${L.icons}" tabindex="0" aria-label="${L.title} mockup">${L.html()}</div><div class="about"><span class="num">${String(n).padStart(2, '0')}</span><h2>${L.title}</h2><ul>${L.points.map(p => `<li>${p}</li>`).join('')}</ul><div class="try">Click Copy to see it.</div></div></section>`);
+});
+
+function rel(win, el) { const a = win.getBoundingClientRect(), b = el.getBoundingClientRect(); return { x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height }; }
+const T = new WeakMap();
+function finish(win, ms) { clearTimeout(T.get(win)); T.set(win, setTimeout(() => { win.classList.remove('done', 'press'); win.querySelectorAll('.tmp').forEach(e => e.remove()); }, ms)); }
+function flyFromShot(win, btn, cls) {
+  const s = rel(win, win.querySelector('.shot')), b = rel(win, btn);
+  const f = document.createElement('div'); f.className = cls + ' tmp';
+  Object.assign(f.style, { left: s.x + 'px', top: s.y + 'px', width: s.w + 'px', height: s.h + 'px', backgroundImage: `url("${SHOT_URI}")`, opacity: .95 });
+  win.appendChild(f);
+  requestAnimationFrame(() => requestAnimationFrame(() => Object.assign(f.style, { left: b.x + b.w / 2 - 12 + 'px', top: b.y + b.h / 2 - 7 + 'px', width: '24px', height: '14px', opacity: 0 })));
+}
+const PLAY = {
+  1: (w) => { w.classList.add('done'); finish(w, 1600); },
+  2: (w, b) => { flyFromShot(w, b, 'fly'); setTimeout(() => w.classList.add('done'), 380); finish(w, 1900); },
+  3: (w) => { w.classList.add('done'); finish(w, 1700); },
+  4: (w, b, ev) => {
+    const r = b.getBoundingClientRect(), d = Math.max(r.width, r.height) * 1.2, rp = document.createElement('span');
+    rp.className = 'tmp'; const x = ev && ev.clientX ? ev.clientX - r.left : r.width / 2, y = ev && ev.clientY ? ev.clientY - r.top : r.height / 2;
+    Object.assign(rp.style, { position: 'absolute', borderRadius: '50%', background: '#ffffff40', width: d + 'px', height: d + 'px', left: x - d / 2 + 'px', top: y - d / 2 + 'px', transform: 'scale(0)', transition: 'transform .5s ease-out, opacity .5s', pointerEvents: 'none' });
+    b.appendChild(rp); requestAnimationFrame(() => requestAnimationFrame(() => { rp.style.transform = 'scale(3.5)'; rp.style.opacity = 0; }));
+    w.classList.add('done'); b.style.background = '#8b5cf6'; b.style.color = '#fff'; setTimeout(() => { b.style.background = ''; b.style.color = ''; }, 1600); finish(w, 1600);
+  },
+  5: (w, b) => {
+    const r = rel(w, b), p = document.createElement('div'); p.className = 'print tmp';
+    p.innerHTML = `<div class="ph" style="background-image:url('${SHOT_URI}')"></div><div class="cp">copied</div>`;
+    Object.assign(p.style, { left: r.x + r.w / 2 - 55 + 'px', top: r.y + r.h - 6 + 'px', transform: 'translateY(-50px) scaleY(.2)', opacity: 0, transition: 'transform .55s cubic-bezier(.2,.9,.25,1.15), opacity .2s' });
+    w.appendChild(p); w.classList.add('done');
+    requestAnimationFrame(() => requestAnimationFrame(() => { p.style.transform = 'translateY(8px) rotate(-3deg)'; p.style.opacity = 1; p.classList.add('dev'); }));
+    finish(w, 2500);
+  },
+  6: (w, b) => {
+    const r = rel(w, b), t = document.createElement('div'); t.className = 'toastc tmp';
+    t.innerHTML = `<span class="tb" style="background-image:url('${SHOT_URI}')"></span><span>Copied ${SIZE}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.8l4.4 4.4L19.2 7.4"/></svg>`;
+    t.style.top = r.y + r.h + 8 + 'px'; w.appendChild(t); t.style.left = Math.min(r.x + r.w - t.offsetWidth, w.clientWidth - t.offsetWidth - 8) + 'px';
+    w.classList.add('done'); requestAnimationFrame(() => requestAnimationFrame(() => t.classList.add('in'))); finish(w, 2200);
+  },
+  7: (w) => { w.classList.add('done'); finish(w, 1700); },
+  8: (w) => { w.classList.add('press'); setTimeout(() => { w.classList.remove('press'); w.classList.add('done'); }, 140); finish(w, 1800); },
+  9: (w) => { w.classList.add('done'); finish(w, 1800); },
+  10: (w, b) => { flyFromShot(w, b, 'ghost'); setTimeout(() => w.classList.add('done'), 300); finish(w, 1900); },
+};
+document.querySelectorAll('.win').forEach((w, i) => {
+  const b = w.querySelector('.act.copy');
+  const go = (ev) => { w.classList.remove('done', 'press'); w.querySelectorAll('.tmp').forEach(e => e.remove()); void w.offsetWidth; PLAY[i + 1](w, b, ev); };
+  b.addEventListener('click', go);
+  w.addEventListener('keydown', e => { if (e.ctrlKey && (e.key === 'c' || e.key === 'C')) { e.preventDefault(); go(); } });
+  w.querySelectorAll('[data-tool]').forEach(t => t.addEventListener('click', () => { w.querySelectorAll('[data-tool].on').forEach(o => o.classList.remove('on')); t.classList.add('on'); }));
+  w.querySelectorAll('.sw').forEach(s => s.addEventListener('click', () => { w.querySelectorAll('.sw.on').forEach(o => o.classList.remove('on')); s.classList.add('on'); w.querySelectorAll('.sizedot').forEach(d => d.style.background = s.style.getPropertyValue('--c')); }));
+  w.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => { w.querySelectorAll('.chip.on').forEach(o => o.classList.remove('on')); c.classList.add('on'); }));
+});
+</script>
+</body>
+</html>
