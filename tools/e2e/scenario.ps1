@@ -14,6 +14,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -81,7 +82,7 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   Check 'fullscreen capture written' (Wait-Until { Test-Path (Out-File-N 2) })
   if (Test-Path (Out-File-N 2)) { Write-Output "      fullscreen size $(Png-Size (Out-File-N 2))" }
 
-  # 3. Region overlay: drag from (100,100) to (400,300) in client pixels, then Enter.
+  # 3. Region overlay: drag from (100,100) to (400,300) in client pixels; letting go snips (default).
   Glint @('region')
   Check 'overlay opens' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero })
   $ov = [W]::FindWindow('GlintOverlay', [NullString]::Value)
@@ -89,12 +90,14 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 100 100)) | Out-Null   # WM_LBUTTONDOWN
   foreach ($i in 1..10) { [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam (100 + 30 * $i) (100 + 20 * $i))) | Out-Null }
   [W]::PostMessage($ov, 0x0202, [IntPtr]0, (LParam 400 300)) | Out-Null   # WM_LBUTTONUP
-  Start-Sleep -Milliseconds 100
-  Check 'overlay waits for Enter' ([W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero)
-  [W]::PostMessage($ov, 0x0100, [IntPtr]0x0D, [IntPtr]0) | Out-Null        # WM_KEYDOWN Enter
-  Check 'overlay closes on Enter' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -eq [IntPtr]::Zero })
+  Check 'overlay closes on release' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -eq [IntPtr]::Zero })
   Check 'region capture written' (Wait-Until { Test-Path (Out-File-N 3) })
   if (Test-Path (Out-File-N 3)) { Check 'region capture size' ((Png-Size (Out-File-N 3)) -eq '301x201') (Png-Size (Out-File-N 3)) }
+
+  # capture_on_release = false: the box waits for adjustments and Enter.
+  (Get-Content $env:GLINT_CONFIG) -replace '^preview_seconds = 30$', "preview_seconds = 30`ncapture_on_release = false" | Set-Content -Encoding utf8 $env:GLINT_CONFIG
+  (Get-Item $env:GLINT_CONFIG).LastWriteTime = (Get-Date).AddSeconds(5)
+  Check 'settings reloaded' (Wait-Until { (Get-Content "$work\local\Glint\glint.log" -ErrorAction SilentlyContinue) -match 'settings reloaded' })
 
   # 4. Arrow keys adjust the selection: Right moves, Shift is not held so size stays.
   Glint @('region')
@@ -103,6 +106,8 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 50 50)) | Out-Null
   [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam 149 99)) | Out-Null
   [W]::PostMessage($ov, 0x0202, [IntPtr]0, (LParam 149 99)) | Out-Null
+  Start-Sleep -Milliseconds 100
+  Check 'overlay waits for Enter' ([W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero)
   [W]::PostMessage($ov, 0x0100, [IntPtr]0x27, [IntPtr]0) | Out-Null        # Right arrow
   [W]::PostMessage($ov, 0x0100, [IntPtr]0x0D, [IntPtr]0) | Out-Null
   Check 'nudged capture written' (Wait-Until { Test-Path (Out-File-N 4) })
@@ -188,6 +193,19 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt $bx $by)) | Out-Null
       Start-Sleep -Milliseconds 200
     }
+    # The toolbar tooltip (F11 test hook: a hidden desktop has no cursor to hover with).
+    Key 0x7A
+    Start-Sleep -Milliseconds 300
+    Key 0x7B                       # F12 = window snapshot
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Move-Item -Force "$work\out\editor-window.png" "$work\out\editor-tooltip.png"
+      New-Item -ItemType Directory -Force "$PSScriptRoot\..\..\.e2e" | Out-Null
+      Copy-Item -Force "$work\out\editor-tooltip.png" "$PSScriptRoot\..\..\.e2e\editor-tooltip.png"
+      $tb = New-Object System.Drawing.Bitmap "$work\out\editor-tooltip.png"
+      $px = $tb.GetPixel([int](25 * $s), [int](70 * $s)); $tb.Dispose()
+      Check 'toolbar tooltip draws' ($px.R -ge 0x24 -and $px.R -le 0x34 -and $px.B -ge 0x2a -and $px.B -le 0x3a) "($($px.R),$($px.G),$($px.B))"
+    } else { Check 'tooltip snapshot written' $false }
     DragImg 100 100 400 300        # arrow (default tool)
     Key 0x4F                       # O = ellipse
     DragImg 500 100 700 300
@@ -219,6 +237,84 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       $out.Dispose()
     }
     if ($env:GLINT_E2E_KEEP) { Copy-Item "$work\out\editor-window.png" $env:GLINT_E2E_KEEP -ErrorAction SilentlyContinue }
+  }
+  if (-not $ed.HasExited) { $ed.Kill() }
+
+  # 8b. A picture bigger than the screen: the window must still fit on the screen (it zooms out).
+  $bigPng = "$work\e2e-big.png"
+  $big = New-Object System.Drawing.Bitmap 5000, 3200
+  $g = [System.Drawing.Graphics]::FromImage($big); $g.Clear([System.Drawing.Color]::FromArgb(30, 60, 90)); $g.Dispose()
+  $big.Save($bigPng, [System.Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
+  $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $bigPng, '--name', 'big.png') -PassThru
+  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'big.png - Glint') -ne [IntPtr]::Zero } 10000
+  Check 'big image: editor opens' $okWin
+  if ($okWin) {
+    Start-Sleep -Milliseconds 1200
+    $hw = [W]::FindWindow([NullString]::Value, 'big.png - Glint')
+    $wr = New-Object W+RECT; [W]::GetWindowRect($hw, [ref]$wr) | Out-Null
+    $sw = [W]::GetSystemMetrics(0); $sh = [W]::GetSystemMetrics(1)
+    Check 'big image: window fits on the screen' (($wr.R - $wr.L) -le $sw -and ($wr.B - $wr.T) -le $sh) "window $($wr.R - $wr.L)x$($wr.B - $wr.T), screen ${sw}x${sh}"
+    Key 0x43                       # C = crop: the frame must show on all four sides
+    Start-Sleep -Milliseconds 300
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-big-crop.png"
+      # The frame's bottom line must be on screen: a white row just above the image's bottom edge.
+      $sn = New-Object System.Drawing.Bitmap "$PSScriptRoot\..\..\.e2e\editor-big-crop.png"
+      $x = [int]($sn.Width / 4); $last = -1
+      for ($y = 0; $y -lt $sn.Height; $y++) { $c = $sn.GetPixel($x, $y); if ($c.R -eq 30 -and $c.G -eq 60 -and $c.B -eq 90) { $last = $y } }
+      $white = $false
+      for ($y = $last + 1; $y -le [math]::Min($sn.Height - 1, $last + 8); $y++) { if ($sn.GetPixel($x, $y).R -gt 200) { $white = $true } }
+      $sn.Dispose()
+      Check 'big image: crop frame bottom line on screen' $white "image ends at row $last"
+      Remove-Item "$work\out\editor-window.png"
+    }
+  }
+  if (-not $ed.HasExited) { $ed.Kill() }
+
+  # 9. Crop, iOS style: the frame starts around the image; drag the bottom-right corner in, let go,
+  #    and it crops by itself after a pause (no Enter).
+  Remove-Item "$work\out\editor-export.png", "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+  $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'crop.png') -PassThru
+  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'crop.png - Glint') -ne [IntPtr]::Zero } 10000
+  Check 'crop: editor opens' $okWin
+  if ($okWin) {
+    Start-Sleep -Milliseconds 800
+    $hw = [W]::FindWindow([NullString]::Value, 'crop.png - Glint')
+    Key 0x43                       # C = crop
+    [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt 790 490)) | Out-Null
+    [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt 798 498)) | Out-Null
+    foreach ($i in 1..8) { [W]::PostMessage($hw, 0x0200, [IntPtr]1, (ImgPt (798 - 25 * $i) (498 - 12.5 * $i))) | Out-Null; Start-Sleep -Milliseconds 15 }
+    Start-Sleep -Milliseconds 100
+    Key 0x7B                       # F12 snapshot while dragging: frame, handles, thirds grid
+    [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt 598 398)) | Out-Null
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-crop.png"
+      Remove-Item "$work\out\editor-window.png"
+    }
+    Start-Sleep -Milliseconds 400
+    Key 0x7B
+    $early = $false
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      $b = New-Object System.Drawing.Bitmap "$work\out\editor-window.png"; $early = $b.Width; $b.Dispose()
+      Remove-Item "$work\out\editor-window.png"
+    }
+    Start-Sleep -Milliseconds 1200  # the pause (1 s) and the zoom
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-cropped.png"
+    }
+    Key 0x0D                       # Enter = copy (test hook: export file) and close
+    Check 'crop: export written' (Wait-Until { Test-Path "$work\out\editor-export.png" })
+    if (Test-Path "$work\out\editor-export.png") {
+      $out = New-Object System.Drawing.Bitmap "$work\out\editor-export.png"
+      Check 'crop: applied after the pause, without Enter' ("$($out.Width)x$($out.Height)" -eq '598x398') "$($out.Width)x$($out.Height)"
+      $out.Dispose()
+    }
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 

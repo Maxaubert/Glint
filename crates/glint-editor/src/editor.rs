@@ -2,7 +2,6 @@
 //! Positions here are in document pixels (the full image, before any crop).
 
 use crate::model::*;
-use std::collections::HashMap;
 
 pub const PALETTE: [[u8; 4]; 6] = [
     [255, 59, 48, 255],   // red
@@ -14,7 +13,9 @@ pub const PALETTE: [[u8; 4]; 6] = [
 ];
 
 /// Stroke widths in screen (logical) pixels; multiplied by the display scale.
-pub const SIZES: [f32; 5] = [2.0, 3.0, 5.0, 8.0, 12.0];
+pub const SIZES: [f32; 7] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 26.0];
+/// The highlighter draws this many times wider than the size.
+pub const HIGHLIGHT_WIDTH: f32 = 3.0;
 
 #[derive(Clone, PartialEq)]
 struct Snapshot {
@@ -25,10 +26,30 @@ struct Snapshot {
 #[derive(Clone, Copy, Debug)]
 enum Drag {
     None,
-    Create { idx: usize, start: Pt },
-    Move { last: Pt },
-    Handle { idx: usize, h: usize },
-    Crop { start: Pt },
+    Create {
+        idx: usize,
+        start: Pt,
+    },
+    Move {
+        last: Pt,
+    },
+    Handle {
+        idx: usize,
+        h: usize,
+    },
+    /// Crop: a new frame dragged outside the current one.
+    Crop {
+        start: Pt,
+    },
+    /// Crop: a corner or edge of the frame (handle index as in `Bx::handles`).
+    CropHandle {
+        h: usize,
+        orig: Bx,
+    },
+    /// Crop: the whole frame, grabbed inside.
+    CropMove {
+        last: Pt,
+    },
 }
 
 /// Text being typed in the on-canvas text box.
@@ -63,7 +84,6 @@ pub struct Editor {
     pub text_edit: Option<TextEdit>,
     /// Changed since the last copy or save.
     pub dirty: bool,
-    styles: HashMap<Tool, (usize, usize)>,
     drag: Drag,
     before: Option<Snapshot>,
     undo: Vec<Snapshot>,
@@ -72,14 +92,6 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(width: u32, height: u32, scale: f32) -> Editor {
-        let mut styles = HashMap::new();
-        styles.insert(Tool::Arrow, (0, 2));
-        styles.insert(Tool::Rect, (0, 1));
-        styles.insert(Tool::Ellipse, (0, 1));
-        styles.insert(Tool::Highlight, (1, 3));
-        styles.insert(Tool::Pen, (0, 1));
-        styles.insert(Tool::Text, (0, 2));
-        styles.insert(Tool::Step, (0, 2));
         Editor {
             width,
             height,
@@ -93,7 +105,6 @@ impl Editor {
             scale: scale.max(0.5),
             text_edit: None,
             dirty: false,
-            styles,
             drag: Drag::None,
             before: None,
             undo: Vec::new(),
@@ -150,6 +161,7 @@ impl Editor {
         self.crop = s.crop;
         self.sel = None;
         self.dirty = true;
+        self.crop_pending = (self.tool == Tool::Crop).then(|| self.view());
     }
 
     /// Call before a change; the change becomes one undo step.
@@ -194,11 +206,13 @@ impl Editor {
     pub fn set_tool(&mut self, t: Tool) {
         if self.tool == Tool::Crop && t != Tool::Crop {
             self.apply_crop();
+            self.crop_pending = None;
         }
+        // Colour and size are shared by all tools and kept between images (owner, 2026-11-12).
         self.tool = t;
-        if let Some(&(c, s)) = self.styles.get(&t) {
-            self.color = c;
-            self.size = s;
+        // The crop frame starts around the whole visible image, with handles (iOS style).
+        if t == Tool::Crop && self.crop_pending.is_none() {
+            self.crop_pending = Some(self.view());
         }
         if t != Tool::Select {
             self.sel = None;
@@ -208,7 +222,6 @@ impl Editor {
     /// Picks a colour; also recolours the selected shape.
     pub fn set_color(&mut self, i: usize) {
         self.color = i.min(PALETTE.len() - 1);
-        self.remember_style();
         if let Some(idx) = self.sel {
             if self.shapes[idx].has_color() && self.shapes[idx].style.color != PALETTE[self.color] {
                 self.checkpoint();
@@ -220,7 +233,6 @@ impl Editor {
     /// Changes the size by `delta` steps; also resizes the selected shape.
     pub fn bump_size(&mut self, delta: i32) {
         self.size = (self.size as i32 + delta).clamp(0, SIZES.len() as i32 - 1) as usize;
-        self.remember_style();
         if let Some(idx) = self.sel {
             let w = SIZES[self.size] * self.scale;
             if self.shapes[idx].style.width != w {
@@ -230,18 +242,15 @@ impl Editor {
         }
     }
 
-    fn remember_style(&mut self) {
-        let tool = match self.sel.map(|i| &self.shapes[i].kind) {
-            Some(Kind::Arrow { .. }) => Tool::Arrow,
-            Some(Kind::Rect { .. }) => Tool::Rect,
-            Some(Kind::Ellipse { .. }) => Tool::Ellipse,
-            Some(Kind::Highlight { .. }) => Tool::Highlight,
-            Some(Kind::Pen { .. }) => Tool::Pen,
-            Some(Kind::Text { .. }) => Tool::Text,
-            Some(Kind::Step { .. }) => Tool::Step,
-            _ => self.tool,
-        };
-        self.styles.insert(tool, (self.color, self.size));
+    /// Diameter of the brush-outline cursor in display pixels: the pen and highlighter show how
+    /// thick they draw; other tools show none (0).
+    pub fn brush(&self) -> f32 {
+        let w = SIZES[self.size] * self.scale;
+        match self.tool {
+            Tool::Pen => w,
+            Tool::Highlight => w * HIGHLIGHT_WIDTH,
+            _ => 0.0,
+        }
     }
 
     pub fn delete_selected(&mut self) -> bool {
@@ -301,6 +310,16 @@ impl Editor {
     /// The mouse cursor to show over `p` (display pixels).
     pub fn cursor(&self, x: f32, y: f32) -> &'static str {
         let p = self.to_doc(x, y);
+        if self.tool == Tool::Crop {
+            return match self.crop_handle_at(p) {
+                Some(0 | 4) => "nwse",
+                Some(2 | 6) => "nesw",
+                Some(1 | 5) => "ns",
+                Some(_) => "ew",
+                None if self.crop_pending.is_some_and(|c| c.contains(p, 0.0)) => "move",
+                None => "cross",
+            };
+        }
         if let Some((idx, h)) = self.handle_at(p) {
             return match (&self.shapes[idx].kind, h) {
                 (Kind::Arrow { .. }, _) => "move",
@@ -318,6 +337,7 @@ impl Editor {
         match self.tool {
             Tool::Select => "default",
             Tool::Text => "text",
+            Tool::Pen | Tool::Highlight => "none",
             _ => "cross",
         }
     }
@@ -328,8 +348,15 @@ impl Editor {
         let p = self.to_doc(x, y);
         self.before = Some(self.snapshot());
         if self.tool == Tool::Crop {
-            self.drag = Drag::Crop { start: p };
-            self.crop_pending = Some(Bx::new(p, p));
+            let c = self.crop_pending.unwrap_or_else(|| self.view());
+            self.crop_pending = Some(c);
+            self.drag = if let Some(h) = self.crop_handle_at(p) {
+                Drag::CropHandle { h, orig: c }
+            } else if c.contains(p, 0.0) {
+                Drag::CropMove { last: p }
+            } else {
+                Drag::Crop { start: p }
+            };
             return;
         }
         if let Some((idx, h)) = self.handle_at(p) {
@@ -379,13 +406,11 @@ impl Editor {
             Tool::Highlight => Kind::Highlight { pts: vec![p] },
             Tool::Pen => Kind::Pen { pts: vec![p] },
             Tool::Blur => Kind::Blur { a: p, b: p },
-            Tool::Pixelate => Kind::Pixelate { a: p, b: p },
             Tool::Crop => unreachable!(),
         };
         let _ = m;
         self.shapes.push(Shape { kind, style });
         let idx = self.shapes.len() - 1;
-        self.sel = Some(idx);
         self.drag = Drag::Create { idx, start: p };
     }
 
@@ -393,6 +418,41 @@ impl Editor {
         let p = self.to_doc(x, y);
         match self.drag {
             Drag::None => {}
+            Drag::CropHandle { h, orig } => {
+                let v = self.view();
+                let q = pt(p.x.clamp(v.x0, v.x1), p.y.clamp(v.y0, v.y1));
+                let min = (16.0 * self.scale).min(v.w()).min(v.h());
+                let (mut x0, mut y0, mut x1, mut y1) = (orig.x0, orig.y0, orig.x1, orig.y1);
+                if matches!(h, 0 | 6 | 7) {
+                    x0 = q.x.min(x1 - min);
+                }
+                if matches!(h, 2..=4) {
+                    x1 = q.x.max(x0 + min);
+                }
+                if matches!(h, 0..=2) {
+                    y0 = q.y.min(y1 - min);
+                }
+                if matches!(h, 4..=6) {
+                    y1 = q.y.max(y0 + min);
+                }
+                self.crop_pending = Some(Bx { x0, y0, x1, y1 });
+            }
+            Drag::CropMove { last } => {
+                if let Some(c) = self.crop_pending {
+                    let v = self.view();
+                    let dx = (p.x - last.x).clamp(v.x0 - c.x0, v.x1 - c.x1);
+                    let dy = (p.y - last.y).clamp(v.y0 - c.y0, v.y1 - c.y1);
+                    self.crop_pending = Some(Bx {
+                        x0: c.x0 + dx,
+                        y0: c.y0 + dy,
+                        x1: c.x1 + dx,
+                        y1: c.y1 + dy,
+                    });
+                    self.drag = Drag::CropMove {
+                        last: pt(last.x + dx, last.y + dy),
+                    };
+                }
+            }
             Drag::Crop { start } => {
                 let q = if m.shift { square(start, p) } else { p };
                 let v = self.view();
@@ -416,10 +476,7 @@ impl Editor {
                 let shape = &mut self.shapes[idx];
                 match &mut shape.kind {
                     Kind::Arrow { b, .. } => *b = if m.shift { snap_angle(start, p) } else { p },
-                    Kind::Rect { a, b }
-                    | Kind::Ellipse { a, b }
-                    | Kind::Blur { a, b }
-                    | Kind::Pixelate { a, b } => {
+                    Kind::Rect { a, b } | Kind::Ellipse { a, b } | Kind::Blur { a, b } => {
                         let q = if m.shift { square(start, p) } else { p };
                         if m.alt {
                             // Draw from the centre.
@@ -458,13 +515,19 @@ impl Editor {
                 self.sel = None;
             }
         }
-        if let Drag::Crop { .. } = drag {
-            if self
-                .crop_pending
-                .is_some_and(|c| c.w() < 3.0 || c.h() < 3.0)
-            {
-                self.crop_pending = None;
+        // Handles and the selection box belong to the Select tool. A drawing tool selects the
+        // new shape only while it is being drawn (owner, 2026-11-12).
+        if self.tool != Tool::Select {
+            self.sel = None;
+        }
+        if matches!(
+            drag,
+            Drag::Crop { .. } | Drag::CropHandle { .. } | Drag::CropMove { .. }
+        ) {
+            if self.crop_pending.is_none_or(|c| c.w() < 3.0 || c.h() < 3.0) {
+                self.crop_pending = Some(self.view());
             }
+            self.before = None;
             return;
         }
         // One undo step for the whole drag, if anything changed.
@@ -543,7 +606,6 @@ impl Editor {
                     kind: Kind::Text { at: edit.at, text },
                     style: edit.style,
                 });
-                self.sel = Some(self.shapes.len() - 1);
             }
         }
     }
@@ -559,30 +621,91 @@ impl Editor {
 
     // ------------------------------------------------------------ crop
 
+    /// Crops to the frame (one undo step). In the Crop tool a new frame then starts around the
+    /// cropped image, so it can be cropped again. False when the frame did not change.
     pub fn apply_crop(&mut self) -> bool {
-        let Some(c) = self.crop_pending.take() else {
+        let Some(c) = self.crop_pending.map(round_box) else {
             return false;
         };
-        let c = Bx {
-            x0: c.x0.round(),
-            y0: c.y0.round(),
-            x1: c.x1.round(),
-            y1: c.y1.round(),
-        };
-        if c.w() < 1.0 || c.h() < 1.0 {
+        let changed = c.w() >= 1.0 && c.h() >= 1.0 && c != round_box(self.view());
+        if changed {
+            self.checkpoint();
+            self.crop = Some(c);
+        }
+        self.crop_pending = (self.tool == Tool::Crop).then(|| self.view());
+        changed
+    }
+
+    /// Esc: the frame goes back around the whole image. False when there was nothing to reset.
+    pub fn cancel_crop(&mut self) -> bool {
+        if self.tool != Tool::Crop {
+            return self.crop_pending.take().is_some();
+        }
+        let v = Some(self.view());
+        if self.crop_pending == v {
             return false;
         }
-        self.checkpoint();
-        self.crop = Some(c);
+        self.crop_pending = v;
         true
     }
 
-    pub fn cancel_crop(&mut self) -> bool {
-        self.crop_pending.take().is_some()
+    /// The crop frame was changed and let go: the app crops after a short pause (iOS style),
+    /// unless the frame is grabbed again first.
+    pub fn crop_waiting(&self) -> bool {
+        self.tool == Tool::Crop
+            && matches!(self.drag, Drag::None)
+            && self
+                .crop_pending
+                .is_some_and(|c| round_box(c) != round_box(self.view()))
+    }
+
+    /// A crop handle or frame is being dragged (the thirds grid shows).
+    pub fn crop_dragging(&self) -> bool {
+        matches!(
+            self.drag,
+            Drag::Crop { .. } | Drag::CropHandle { .. } | Drag::CropMove { .. }
+        )
+    }
+
+    /// Corner (0, 2, 4, 6) or edge (1, 3, 5, 7) of the crop frame under `p`. Edges can be
+    /// grabbed anywhere along their length.
+    fn crop_handle_at(&self, p: Pt) -> Option<usize> {
+        let c = self.crop_pending?;
+        let tol = 12.0 * self.scale;
+        let hs = c.handles();
+        if let Some(i) = [0, 2, 4, 6]
+            .into_iter()
+            .find(|&i| hs[i].dist(p) <= tol * 1.4)
+        {
+            return Some(i);
+        }
+        let along_x = p.x >= c.x0 - tol && p.x <= c.x1 + tol;
+        let along_y = p.y >= c.y0 - tol && p.y <= c.y1 + tol;
+        if along_y && (p.x - c.x0).abs() <= tol {
+            Some(7)
+        } else if along_y && (p.x - c.x1).abs() <= tol {
+            Some(3)
+        } else if along_x && (p.y - c.y0).abs() <= tol {
+            Some(1)
+        } else if along_x && (p.y - c.y1).abs() <= tol {
+            Some(5)
+        } else {
+            None
+        }
     }
 
     pub fn is_dragging(&self) -> bool {
         !matches!(self.drag, Drag::None)
+    }
+}
+
+/// A box with whole-pixel edges.
+fn round_box(c: Bx) -> Bx {
+    Bx {
+        x0: c.x0.round(),
+        y0: c.y0.round(),
+        x1: c.x1.round(),
+        y1: c.y1.round(),
     }
 }
 
@@ -644,13 +767,19 @@ mod tests {
     }
 
     #[test]
-    fn selected_shape_moves_with_any_tool() {
+    fn drawing_does_not_select_but_select_tool_moves() {
         let mut e = ed();
         e.set_tool(Tool::Rect);
         drag(&mut e, (100.0, 100.0), (200.0, 200.0), NO);
-        assert_eq!(e.sel, Some(0));
-        // Grab the border of the selected rectangle and move it.
+        assert_eq!(e.sel, None, "no handles after drawing");
+        // Drawing over a shape with a drawing tool makes a new shape.
+        drag(&mut e, (100.0, 130.0), (150.0, 160.0), NO);
+        assert_eq!(e.shapes.len(), 2);
+        e.undo();
+        // The Select tool grabs the border of the rectangle and moves it.
+        e.set_tool(Tool::Select);
         drag(&mut e, (100.0, 130.0), (110.0, 140.0), NO);
+        assert_eq!(e.sel, Some(0));
         assert_eq!(e.shapes.len(), 1);
         assert!(matches!(e.shapes[0].kind, Kind::Rect { a, .. } if a == pt(110.0, 110.0)));
         assert_eq!(e.undo.len(), 2);
@@ -661,6 +790,8 @@ mod tests {
         let mut e = ed();
         e.set_tool(Tool::Rect);
         drag(&mut e, (100.0, 100.0), (200.0, 200.0), NO);
+        e.set_tool(Tool::Select);
+        drag(&mut e, (100.0, 130.0), (100.0, 130.0), NO); // click selects
         drag(&mut e, (200.0, 200.0), (300.0, 250.0), NO);
         assert!(matches!(e.shapes[0].kind, Kind::Rect { b, .. } if b == pt(300.0, 250.0)));
     }
@@ -713,10 +844,67 @@ mod tests {
     }
 
     #[test]
+    fn crop_frame_starts_around_the_image_and_waits() {
+        let mut e = ed();
+        e.set_tool(Tool::Crop);
+        assert_eq!(e.crop_pending, Some(e.view()));
+        assert!(!e.crop_waiting(), "nothing to crop yet");
+        // Drag the right edge (grabbed away from its middle) and the bottom-left corner.
+        drag(&mut e, (800.0, 100.0), (600.0, 100.0), NO);
+        drag(&mut e, (0.0, 600.0), (50.0, 500.0), NO);
+        assert_eq!(
+            e.crop_pending,
+            Some(Bx {
+                x0: 50.0,
+                y0: 0.0,
+                x1: 600.0,
+                y1: 500.0
+            })
+        );
+        assert!(e.crop_waiting());
+        assert!(!e.can_undo(), "the frame alone is not an undo step");
+        assert!(e.apply_crop());
+        assert_eq!(e.view_size(), (550, 500));
+        assert_eq!(
+            e.crop_pending,
+            Some(e.view()),
+            "a new frame around the cropped image"
+        );
+        assert!(!e.crop_waiting());
+        e.undo();
+        assert_eq!(e.view_size(), (800, 600));
+        assert_eq!(e.crop_pending, Some(e.view()));
+    }
+
+    #[test]
+    fn crop_frame_moves_inside_the_image_and_keeps_a_minimum() {
+        let mut e = ed();
+        e.set_tool(Tool::Crop);
+        drag(&mut e, (0.0, 0.0), (400.0, 300.0), NO); // top-left corner in
+        drag(&mut e, (600.0, 450.0), (900.0, 900.0), NO); // move, stopped by the image edge
+        assert_eq!(
+            e.crop_pending,
+            Some(Bx {
+                x0: 400.0,
+                y0: 300.0,
+                x1: 800.0,
+                y1: 600.0
+            })
+        );
+        drag(&mut e, (400.0, 300.0), (1000.0, 1000.0), NO); // corner past the opposite one
+        let c = e.crop_pending.unwrap();
+        assert_eq!((c.x0, c.y0), (784.0, 584.0), "16 px minimum");
+        assert!(e.cancel_crop());
+        assert_eq!(e.crop_pending, Some(e.view()));
+        assert!(!e.cancel_crop());
+    }
+
+    #[test]
     fn crop_maps_coordinates() {
         let mut e = ed();
         e.set_tool(Tool::Crop);
-        drag(&mut e, (100.0, 50.0), (300.0, 250.0), NO);
+        drag(&mut e, (0.0, 0.0), (100.0, 50.0), NO);
+        drag(&mut e, (800.0, 600.0), (300.0, 250.0), NO);
         assert!(e.apply_crop());
         assert_eq!(e.view_size(), (200, 200));
         assert_eq!(e.to_doc(0.0, 0.0), pt(100.0, 50.0));
@@ -729,20 +917,38 @@ mod tests {
     }
 
     #[test]
-    fn styles_are_remembered_per_tool() {
+    fn style_is_shared_between_tools() {
+        let mut e = ed();
+        e.set_tool(Tool::Pen);
+        e.set_color(3);
+        e.bump_size(2);
+        let size = e.size;
+        e.set_tool(Tool::Highlight);
+        assert_eq!((e.color, e.size), (3, size));
+        e.set_tool(Tool::Arrow);
+        assert_eq!((e.color, e.size), (3, size));
+    }
+
+    #[test]
+    fn brush_outline_follows_size() {
         let mut e = ed();
         e.set_tool(Tool::Arrow);
-        e.set_color(3);
+        assert_eq!(e.brush(), 0.0);
+        e.set_tool(Tool::Pen);
+        let pen = e.brush();
+        assert!(pen > 0.0);
         e.set_tool(Tool::Highlight);
-        assert_eq!(e.color, 1);
-        e.set_tool(Tool::Arrow);
-        assert_eq!(e.color, 3);
+        assert_eq!(e.brush(), pen * HIGHLIGHT_WIDTH);
+        e.bump_size(1);
+        assert!(e.brush() > pen * HIGHLIGHT_WIDTH);
     }
 
     #[test]
     fn recolor_selected_is_undoable() {
         let mut e = ed();
         drag(&mut e, (10.0, 10.0), (200.0, 100.0), NO);
+        e.set_tool(Tool::Select);
+        drag(&mut e, (105.0, 55.0), (105.0, 55.0), NO); // click the arrow
         e.set_color(2);
         assert_eq!(e.shapes[0].style.color, PALETTE[2]);
         e.undo();

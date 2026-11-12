@@ -29,11 +29,11 @@
 
 | Snip | Preview | Editor |
 |---|---|---|
-| `Ctrl+Alt+S` opens the overlay (press again to close) | Card in the bottom-right corner | Arrow (drag the middle to curve it) |
+| `Win+Shift+S` opens the overlay (press again to close) | Card in the bottom-right corner | Arrow (drag the middle to curve it) |
 | Drag a box, then fine-tune with handles or arrow keys | **Click** to open the editor | Ellipse for circling things, rectangle |
 | **Right-click**: the whole screen under the mouse | **Drag** it into Discord, Slack, Explorer | Highlighter that keeps text readable |
 | **Middle-click**: the same area as last time | Save with one click | Text, numbered steps, pen |
-| Magnifier with pixel position and colour | Stacks when you snip quickly | Blur and pixelate (permanent) |
+| Works with the Wind magnifier: snip while zoomed, zoom out in the overlay | Stacks when you snip quickly | Blur (permanent) |
 | Works across monitors with different scaling | Never steals focus | Crop, undo, copy, save PNG, JPEG or WebP |
 
 <img src="assets/overlay.png" width="600" alt="The snip overlay: dimmed screen, selected area with handles and its size">
@@ -48,12 +48,12 @@ The installer is not signed yet, so SmartScreen may warn on first run.
 
 | Where | Key or action | Does |
 |---|---|---|
-| Anywhere | `Ctrl+Alt+S` | Open the snip overlay |
-| Overlay | Drag, then `Enter` or double-click | Snip the box |
+| Anywhere | `Win+Shift+S` | Open the snip overlay |
+| Overlay | Drag and let go | Snip the box (with `capture_on_release = false`: adjust, then `Enter`) |
 | Overlay | Right-click / middle-click | Full screen / last area |
 | Overlay | Arrows, `Shift`+arrows, `Ctrl` for 10 px | Move / resize the box |
 | Overlay | `F`, `Shift+F`, `Esc` | Full screen, all screens, cancel |
-| Editor | `V A R O H P T N B X C` | Select, arrow, rectangle, ellipse, highlight, pen, text, step, blur, pixelate, crop |
+| Editor | `V A R O H P T N B C` | Select, arrow, rectangle, ellipse, highlight, pen, text, step, blur, crop |
 | Editor | `1` to `6`, `[` and `]` | Colour, thinner and thicker |
 | Editor | `Ctrl+Z`, `Ctrl+Y`, `Delete` | Undo, redo, delete the selected shape |
 | Editor | `Ctrl+C`, `Ctrl+S`, `Enter` | Copy, save, copy and close |
@@ -68,11 +68,11 @@ Print Screen key instead, or turn off start with Windows.
 ```toml
 preview_seconds = 6          # how long the preview card stays
 save_dir = 'D:\Screenshots'   # default: Pictures\Glint
-capture_on_release = false   # snip as soon as you let go of the mouse
+capture_on_release = true    # snip when you let go; false = adjust the box, then Enter
 hdr_capture = false          # re-capture HDR screens with tone mapping (for HDR games and video)
 
 [hotkeys]
-region = "Ctrl+Alt+S"
+region = "Win+Shift+S"   # Glint takes this from the Windows Snipping Tool
 fullscreen = ""              # optional, for example "Ctrl+Alt+F"
 repeat = ""                  # optional, for example "Ctrl+Alt+R"
 ```
@@ -94,6 +94,11 @@ makensis /DVERSION=0.1.0 installer\glint.nsi   # dist\Glint-Setup-x64-0.1.0.exe
 | `glint-editor` | The editor (Slint UI, tiny-skia drawing) |
 
 Design notes and the roadmap of ideas: [docs/2026-11-12-v1-spec-and-plan.md](docs/2026-11-12-v1-spec-and-plan.md).
+
+## Credits
+
+The capture sound is "Camera shutter" (6305) from the Freesound community on
+[Pixabay](https://pixabay.com/sound-effects/), used under the Pixabay Content License, pitched up one semitone.
 
 ## License
 

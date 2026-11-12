@@ -1290,7 +1290,7 @@ dependencies = [
 
 [[package]]
 name = "glint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "glint-capture",
  "glint-core",
@@ -1300,7 +1300,7 @@ dependencies = [
 
 [[package]]
 name = "glint-capture"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "glint-core",
  "windows",
@@ -1308,7 +1308,7 @@ dependencies = [
 
 [[package]]
 name = "glint-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ico",
  "png 0.18.1",
@@ -1319,7 +1319,7 @@ dependencies = [
 
 [[package]]
 name = "glint-editor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "ab_glyph",
  "glint-core",

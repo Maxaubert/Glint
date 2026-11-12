@@ -15,6 +15,7 @@ use glint_editor::model::{text_size, Tool};
 use glint_editor::render::Renderer;
 use serde::{Deserialize, Serialize};
 use slint::platform::Key;
+use slint::TimerMode;
 use slint::{
     CloseRequestResponse, Color, ComponentHandle, ModelRc, SharedPixelBuffer, SharedString,
     VecModel,
@@ -22,6 +23,7 @@ use slint::{
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
@@ -57,10 +59,38 @@ fn parse_args() -> Args {
     a
 }
 
-/// Remembered between runs: the last folder used to save.
+/// Remembered between runs: the last folder used to save, and the colour and size.
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     last_dir: Option<PathBuf>,
+    color: Option<usize>,
+    size: Option<usize>,
+}
+
+/// Writes the colour and size to the state file when they changed, so the next image (and the
+/// next editor) starts with them.
+fn persist_style(ed: &Editor) {
+    thread_local! {
+        static LAST: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+    }
+    let now = (ed.color, ed.size);
+    if LAST.with(|l| l.replace(Some(now))) == Some(now) {
+        return;
+    }
+    let mut s = load_state();
+    if (s.color, s.size) != (Some(now.0), Some(now.1)) {
+        s.color = Some(now.0);
+        s.size = Some(now.1);
+        save_state(&s);
+    }
+}
+
+/// A new editor with the remembered colour and size.
+fn editor_for(img: &Image, scale: f32, color: usize, size: usize) -> Editor {
+    let mut ed = Editor::new(img.width, img.height, scale);
+    ed.color = color.min(glint_editor::editor::PALETTE.len() - 1);
+    ed.size = size.min(glint_editor::editor::SIZES.len() - 1);
+    ed
 }
 
 fn state_path() -> PathBuf {
@@ -132,13 +162,21 @@ struct App {
 
 impl App {
     fn new(img: &Image, name: String, save_dir: PathBuf, scale: f32) -> App {
+        let state = load_state();
+        let defaults = Editor::new(1, 1, scale);
+        let ed = editor_for(
+            img,
+            scale,
+            state.color.unwrap_or(defaults.color),
+            state.size.unwrap_or(defaults.size),
+        );
         App {
-            ed: Editor::new(img.width, img.height, scale),
+            ed,
             r: Renderer::new(img),
             name,
             save_dir,
             temp_file: None,
-            state: load_state(),
+            state,
             status: String::new(),
         }
     }
@@ -194,6 +232,8 @@ impl App {
                 self.ed.dirty = false;
                 self.status = format!("Saved {}", path.display());
                 self.state.last_dir = path.parent().map(Path::to_path_buf);
+                self.state.color = Some(self.ed.color);
+                self.state.size = Some(self.ed.size);
                 save_state(&self.state);
             }
             Err(e) => message(&format!("Could not save the image.\n\n{e}")),
@@ -214,8 +254,7 @@ impl App {
             Tool::Text => "Click to type. Enter finishes. Double-click text to edit it.",
             Tool::Step => "Click to add numbered steps. They renumber when you delete one.",
             Tool::Blur => "Drag over anything private to blur it. The blur is permanent in the saved image.",
-            Tool::Pixelate => "Drag over anything private to pixelate it. Permanent in the saved image.",
-            Tool::Crop => "Drag the area to keep. Enter applies, Esc cancels.",
+            Tool::Crop => "Drag a corner or edge. It crops a second after you let go. Enter crops now, Esc resets, Ctrl+Z undoes.",
         }
         .into()
     }
@@ -284,9 +323,26 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
     ui.set_tool(app.ed.tool.id().into());
     ui.set_color_index(app.ed.color as i32);
     ui.set_size_index(app.ed.size as i32);
+    ui.set_brush(app.ed.brush());
+    persist_style(&app.ed);
     ui.set_can_undo(app.ed.can_undo());
     ui.set_can_redo(app.ed.can_redo());
     ui.set_crop_pending(app.ed.crop_pending.is_some());
+    // The crop frame, as parts (0..1) of the shown image; the window draws it over the image.
+    match app.ed.crop_pending.filter(|_| app.ed.tool == Tool::Crop) {
+        Some(c) => {
+            let v = app.ed.view();
+            ui.set_crop_frame(CropFrame {
+                show: true,
+                x0: (c.x0 - v.x0) / v.w(),
+                y0: (c.y0 - v.y0) / v.h(),
+                x1: (c.x1 - v.x0) / v.w(),
+                y1: (c.y1 - v.y0) / v.h(),
+                grid: app.ed.crop_dragging(),
+            });
+        }
+        None => ui.set_crop_frame(CropFrame::default()),
+    }
     ui.set_status(app.hint().into());
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
     ui.set_window_title(format!("{}{} - Glint", app.name, dot).into());
@@ -447,7 +503,8 @@ fn main() {
         .map(|t| ToolItem {
             id: t.id().into(),
             glyph: t.glyph().into(),
-            tip: format!("{}  ({})", t.name(), t.key()).into(),
+            tip: t.name().into(),
+            key: t.key().to_string().into(),
         })
         .collect();
     ui.set_tools(ModelRc::new(VecModel::from(tools)));
@@ -510,12 +567,15 @@ fn main() {
     }
     {
         let with = with.clone();
+        let with_settle = with.clone();
         ui.on_pointer(move |kind, x, y, shift, ctrl, alt| {
             let m = Mods { shift, ctrl, alt };
             let kind = kind.to_string();
             with(&|a, ui| {
                 match kind.as_str() {
                     "down" => {
+                        // Grabbing the crop frame again restarts the pause before it crops.
+                        SETTLE.with(|t| t.stop());
                         a.status.clear();
                         // Stroke widths follow the window's real scale (known once it is on screen).
                         a.ed.scale = ui.window().scale_factor();
@@ -524,17 +584,31 @@ fn main() {
                             ui.set_text_editing(false);
                         }
                         a.ed.pointer_down(x, y, m);
-                        true
+                        // The crop frame is drawn by the window; the picture does not change.
+                        a.ed.tool != Tool::Crop
                     }
                     "up" => {
+                        let crop = a.ed.tool == Tool::Crop;
                         a.ed.pointer_up(x, y, m);
-                        true
+                        if a.ed.crop_waiting() {
+                            let with = with_settle.clone();
+                            SETTLE.with(|t| {
+                                t.start(TimerMode::SingleShot, CROP_PAUSE, move || {
+                                    with(&|a, ui| settle_crop(a, ui));
+                                })
+                            });
+                        }
+                        !crop
                     }
                     _ => {
                         ui.set_cursor(a.ed.cursor(x, y).into());
                         if a.ed.is_dragging() {
+                            // Dragging the crop frame only moves the window's overlay: no
+                            // re-render and no new picture per mouse move (it lagged on big
+                            // pictures). The crop itself happens after letting go.
+                            let crop = a.ed.crop_dragging();
                             a.ed.pointer_move(x, y, m);
-                            true
+                            !crop
                         } else {
                             false
                         }
@@ -613,6 +687,46 @@ fn main() {
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<App>>>> = const { RefCell::new(None) };
+    /// Crops a moment after the crop frame is let go (iOS style).
+    static SETTLE: slint::Timer = slint::Timer::default();
+}
+
+/// How long a changed crop frame waits, so the handles can be grabbed again first.
+const CROP_PAUSE: Duration = Duration::from_millis(1000);
+/// The zoom from the frame to the full cropped image.
+const CROP_ANIM: Duration = Duration::from_millis(280);
+
+/// Crops to the frame and zooms the kept part up to fill the canvas. Undo brings it back.
+fn settle_crop(a: &mut App, ui: &EditorWindow) -> bool {
+    let (Some(c), v) = (a.ed.crop_pending, a.ed.view()) else {
+        return false;
+    };
+    if !a.ed.crop_waiting() {
+        return false;
+    }
+    // Where the frame is now, as parts of the shown image: the cropped image starts there.
+    ui.invoke_begin_settle(
+        (c.x0 - v.x0) / v.w(),
+        (c.y0 - v.y0) / v.h(),
+        c.w() / v.w(),
+        c.h() / v.h(),
+    );
+    let done = a.ed.apply_crop();
+    let weak = ui.as_weak();
+    // Next frame: animate from the frame to the normal fitted place.
+    slint::Timer::single_shot(Duration::from_millis(16), move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_settle_anim(true);
+            ui.set_settling(false);
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(CROP_ANIM + Duration::from_millis(40), move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_settle_anim(false);
+                }
+            });
+        }
+    });
+    done
 }
 
 /// Toolbar and shortcut actions. Returns true when the canvas must be redrawn.
@@ -641,7 +755,7 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         }
         "paste" => match clipboard::get_image(hwnd()) {
             Ok(Some(img)) if a.ed.shapes.is_empty() => {
-                a.ed = Editor::new(img.width, img.height, a.ed.scale);
+                a.ed = editor_for(&img, a.ed.scale, a.ed.color, a.ed.size);
                 a.r = Renderer::new(&img);
                 a.status = "Pasted the clipboard image".into();
             }
@@ -711,12 +825,19 @@ fn on_key(
         snapshot(ui);
         return (true, false);
     }
+    // Tests only: F11 opens the arrow tool's tooltip (a hidden desktop has no real cursor, so
+    // Windows ends a posted hover at once).
+    if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        ui.invoke_show_tip("Arrow".into(), "A".into(), 61.0);
+        return (true, false);
+    }
     if a.ed.text_edit.is_some() {
         return (false, false); // the text box handles typing
     }
     if is(text, Key::Return) {
-        if a.ed.apply_crop() {
-            return (true, true);
+        if a.ed.crop_waiting() {
+            SETTLE.with(|t| t.stop());
+            return (true, settle_crop(a, ui));
         }
         return (true, run_action(a, ui, "copy-close"));
     }

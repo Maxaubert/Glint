@@ -8,12 +8,15 @@
 #![windows_subsystem = "windows"]
 
 mod app;
+mod feedback;
 mod gfx;
+mod hook;
 mod icon;
 mod log;
 mod overlay;
 mod system;
 mod toast;
+mod wind;
 
 use app::Command;
 use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS, LPARAM, WPARAM};

@@ -74,8 +74,8 @@ impl Renderer {
         }
     }
 
-    /// The visible area (after crop) with all shapes. `ui`: also draw selection, handles and the
-    /// pending crop.
+    /// The visible area (after crop) with all shapes. `ui`: also draw the selection and its
+    /// handles. The crop frame is drawn by the window (editor.slint), over the image.
     pub fn render(&self, ed: &Editor, ui: bool) -> Pixmap {
         let mut pm = self.base.clone();
         let hidden = ed.hidden();
@@ -85,11 +85,10 @@ impl Renderer {
             }
         }
         if ui {
-            if let Some(s) = ed.sel.and_then(|i| ed.shapes.get(i)) {
+            // Only the Select tool shows the box and handles; drawing shows just the shape.
+            let sel = ed.sel.filter(|_| ed.tool == crate::model::Tool::Select);
+            if let Some(s) = sel.and_then(|i| ed.shapes.get(i)) {
                 draw_selection(&mut pm, s, ed.scale);
-            }
-            if let Some(c) = ed.crop_pending {
-                draw_crop(&mut pm, &c, &ed.view(), ed.scale);
             }
         }
         let v = ed.view();
@@ -139,7 +138,7 @@ impl Renderer {
                 if let Some(path) = polyline(pts) {
                     let mut p = paint(c);
                     p.blend_mode = BlendMode::Multiply;
-                    let mut st = stroke(w * 3.0);
+                    let mut st = stroke(w * crate::editor::HIGHLIGHT_WIDTH);
                     st.line_cap = LineCap::Square;
                     pm.stroke_path(&path, &p, &st, t, None);
                 }
@@ -191,11 +190,6 @@ impl Renderer {
                 let bx = Bx::new(*a, *b);
                 let r = ((bx.w().min(bx.h()) / 6.0) as usize).clamp(6, 40);
                 region(pm, &bx, |buf, w, h| box_blur(buf, w, h, r));
-            }
-            Kind::Pixelate { a, b } => {
-                let bx = Bx::new(*a, *b);
-                let block = ((bx.w().min(bx.h()) / 10.0) as usize).clamp(8, 48);
-                region(pm, &bx, |buf, w, h| pixelate(buf, w, h, block));
             }
         }
     }
@@ -307,34 +301,6 @@ fn draw_selection(pm: &mut Pixmap, s: &Shape, scale: f32) {
     }
 }
 
-fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32) {
-    let dim = paint([0, 0, 0, 140]);
-    let t = Transform::identity();
-    for r in [
-        Rect::from_ltrb(view.x0, view.y0, view.x1, c.y0),
-        Rect::from_ltrb(view.x0, c.y1, view.x1, view.y1),
-        Rect::from_ltrb(view.x0, c.y0, c.x0, c.y1),
-        Rect::from_ltrb(c.x1, c.y0, view.x1, c.y1),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        pm.fill_rect(r, &dim, t, None);
-    }
-    if let Some(r) = Rect::from_ltrb(c.x0, c.y0, c.x1, c.y1) {
-        pm.stroke_path(
-            &PathBuilder::from_rect(r),
-            &paint([255, 255, 255, 255]),
-            &Stroke {
-                width: 1.5 * scale,
-                ..Default::default()
-            },
-            t,
-            None,
-        );
-    }
-}
-
 /// Runs `f` on the pixels inside `bx` (clamped), as a tight RGBA buffer.
 fn region(pm: &mut Pixmap, bx: &Bx, f: impl Fn(&mut [u8], usize, usize)) {
     let x0 = bx.x0.max(0.0).floor() as usize;
@@ -416,32 +382,6 @@ fn blur_pass(src: &[u8], dst: &mut [u8], w: usize, h: usize, r: usize, horizonta
     }
 }
 
-pub fn pixelate(buf: &mut [u8], w: usize, h: usize, block: usize) {
-    let block = block.max(1);
-    for by in (0..h).step_by(block) {
-        for bx in (0..w).step_by(block) {
-            let (ex, ey) = ((bx + block).min(w), (by + block).min(h));
-            let mut acc = [0u64; 4];
-            let n = ((ex - bx) * (ey - by)) as u64;
-            for y in by..ey {
-                for x in bx..ex {
-                    let k = (y * w + x) * 4;
-                    for c in 0..4 {
-                        acc[c] += buf[k + c] as u64;
-                    }
-                }
-            }
-            let avg = acc.map(|v| (v / n) as u8);
-            for y in by..ey {
-                for x in bx..ex {
-                    let k = (y * w + x) * 4;
-                    buf[k..k + 4].copy_from_slice(&avg);
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,14 +409,6 @@ mod tests {
     }
 
     #[test]
-    fn pixelate_makes_blocks() {
-        let img = checker(16, 16);
-        let mut buf = img.data.clone();
-        pixelate(&mut buf, 16, 16, 8);
-        assert_eq!(&buf[0..4], &buf[(7 * 16 + 7) * 4..(7 * 16 + 7) * 4 + 4]);
-    }
-
-    #[test]
     fn export_draws_arrow_and_crops() {
         let img = Image::filled(200, 100, [255, 255, 255, 255]);
         let r = Renderer::new(&img);
@@ -490,7 +422,9 @@ mod tests {
         assert!(p[0] > 200 && p[1] < 100, "arrow is red: {p:?}");
         assert_eq!(out.pixel(100, 10), [255, 255, 255, 255]);
         e.set_tool(crate::model::Tool::Crop);
-        e.pointer_down(50.0, 20.0, m);
+        e.pointer_down(0.0, 0.0, m); // top-left corner of the frame
+        e.pointer_up(50.0, 20.0, m);
+        e.pointer_down(200.0, 100.0, m); // bottom-right corner
         e.pointer_up(150.0, 80.0, m);
         e.apply_crop();
         let out = r.export(&e);
