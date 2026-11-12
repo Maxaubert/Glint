@@ -344,21 +344,22 @@ fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32, grid: bool) {
             line(pm, c.x0, y, c.x1, y, 1.0 * s, [255, 255, 255, 150]);
         }
     }
-    // Frame: a white line on a soft dark line, half a line inside the box.
-    if let Some(r) = Rect::from_ltrb(
-        c.x0 + 0.75 * s,
-        c.y0 + 0.75 * s,
-        c.x1 - 0.75 * s,
-        c.y1 - 0.75 * s,
-    ) {
-        let path = PathBuilder::from_rect(r);
-        let mut st = Stroke {
-            width: 3.0 * s,
-            ..Default::default()
-        };
-        pm.stroke_path(&path, &paint([0, 0, 0, 110]), &st, t, None);
-        st.width = 1.5 * s;
-        pm.stroke_path(&path, &paint([255, 255, 255, 235]), &st, t, None);
+    // Frame: a white line on a soft dark line, inside the box. Filled strips, not a stroked
+    // rectangle: tiny-skia drops a stroke edge that lies on the last pixel row of the pixmap, so
+    // the bottom line went missing while the frame was around the whole image.
+    let strips = |w: f32| {
+        [
+            Rect::from_ltrb(c.x0, c.y0, c.x1, c.y0 + w),
+            Rect::from_ltrb(c.x0, c.y1 - w, c.x1, c.y1),
+            Rect::from_ltrb(c.x0, c.y0, c.x0 + w, c.y1),
+            Rect::from_ltrb(c.x1 - w, c.y0, c.x1, c.y1),
+        ]
+    };
+    for r in strips(3.0 * s).into_iter().flatten() {
+        pm.fill_rect(r, &paint([0, 0, 0, 110]), t, None);
+    }
+    for r in strips(1.5 * s).into_iter().flatten() {
+        pm.fill_rect(r, &paint([255, 255, 255, 235]), t, None);
     }
     // Corners and edge bars: filled bars, each over a slightly bigger dark one.
     let th = 3.5 * s;
@@ -501,6 +502,25 @@ mod tests {
         box_blur(&mut buf, 64, 64, 8);
         let mid = (32 * 64 + 32) * 4;
         assert!((100..160).contains(&buf[mid]), "{}", buf[mid]);
+    }
+
+    #[test]
+    fn crop_frame_has_all_four_lines_around_the_whole_image() {
+        let img = Image::filled(300, 200, [0, 0, 0, 255]);
+        let r = Renderer::new(&img);
+        let mut e = Editor::new(300, 200, 1.0);
+        e.set_tool(crate::model::Tool::Crop);
+        let pm = r.render(&e, true);
+        let px = |x: u32, y: u32| pm.pixel(x, y).unwrap().demultiply().red();
+        // Between the corner and edge bars, on the outermost row or column.
+        for (x, y, side) in [
+            (75, 0, "top"),
+            (75, 199, "bottom"),
+            (0, 50, "left"),
+            (299, 50, "right"),
+        ] {
+            assert!(px(x, y) > 200, "{side} line missing");
+        }
     }
 
     #[test]
