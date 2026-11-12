@@ -320,14 +320,11 @@ export component SettingsPanel inherits Rectangle {
                         horizontal-alignment: left;
                     }
                     Rectangle { height: 8px; }
-                    NavItem { icon: @image-url("icons/select.svg"); label: "Capture"; index: 0; }
-                    NavItem { icon: @image-url("icons/sound.svg"); label: "Feedback"; index: 1; }
-                    NavItem { icon: @image-url("icons/keyboard.svg"); label: "Hotkeys"; index: 2; }
-                    NavItem { icon: @image-url("icons/folder.svg"); label: "Saving"; index: 3; }
-                    NavItem { icon: @image-url("icons/frame.svg"); label: "Appearance"; index: 4; }
-                    NavItem { icon: @image-url("icons/power.svg"); label: "System"; index: 5; }
+                    NavItem { icon: @image-url("icons/settings.svg"); label: "General"; index: 0; }
+                    NavItem { icon: @image-url("icons/keyboard.svg"); label: "Hotkeys"; index: 1; }
+                    NavItem { icon: @image-url("icons/folder.svg"); label: "Saving"; index: 2; }
                     Rectangle { vertical-stretch: 1; }
-                    NavItem { icon: @image-url("icons/info.svg"); label: "About"; index: 6; }
+                    NavItem { icon: @image-url("icons/info.svg"); label: "About"; index: 3; }
                 }
                 Rectangle {
                     x: parent.width - 1px;
@@ -346,7 +343,7 @@ export component SettingsPanel inherits Rectangle {
                     alignment: start;
                     Text {
                         property <int> s: SettingsState.section;
-                        text: self.s == 0 ? "Capture" : self.s == 1 ? "Feedback" : self.s == 2 ? "Hotkeys" : self.s == 3 ? "Saving" : self.s == 4 ? "Appearance" : self.s == 5 ? "System" : "About";
+                        text: self.s == 0 ? "General" : self.s == 1 ? "Hotkeys" : self.s == 2 ? "Saving" : "About";
                         font-size: 24px;
                         font-weight: 700;
                         color: Theme.text;
@@ -354,15 +351,6 @@ export component SettingsPanel inherits Rectangle {
                     Rectangle { height: 10px; }
 
                     if SettingsState.section == 0: VerticalLayout {
-                        Row {
-                            icon: @image-url("icons/hdr.svg");
-                            title: "HDR capture";
-                            help: "Better colours on HDR screens (games, video), a little slower";
-                            last: true;
-                            Toggle { y: 19px; on <=> SettingsState.hdr-capture; toggled => { SettingsState.changed(); } }
-                        }
-                    }
-                    if SettingsState.section == 1: VerticalLayout {
                         Row {
                             icon: @image-url("icons/sound.svg");
                             title: "Capture sound";
@@ -373,7 +361,6 @@ export component SettingsPanel inherits Rectangle {
                             icon: @image-url("icons/timer.svg");
                             title: "Preview card";
                             help: "Seconds the card stays in the corner (it waits while the mouse is on it)";
-                            last: true;
                             Rectangle {
                                 width: 116px;
                                 height: 34px;
@@ -405,8 +392,32 @@ export component SettingsPanel inherits Rectangle {
                                 }
                             }
                         }
+                        Row {
+                            icon: @image-url("icons/hdr.svg");
+                            title: "HDR capture";
+                            help: "Better colours on HDR screens (games, video), a little slower";
+                            Toggle { y: 19px; on <=> SettingsState.hdr-capture; toggled => { SettingsState.changed(); } }
+                        }
+                        Row {
+                            icon: @image-url("icons/frame.svg");
+                            title: "Theme";
+                            help: "Light or dark, or follow the Windows setting";
+                            Choice {
+                                y: 15px;
+                                options: [{ key: "system", label: "Windows" }, { key: "light", label: "Light" }, { key: "dark", label: "Dark" }];
+                                value <=> SettingsState.theme;
+                                picked => { SettingsState.changed(); }
+                            }
+                        }
+                        Row {
+                            icon: @image-url("icons/power.svg");
+                            title: "Start with Windows";
+                            help: "Glint waits in the tray, using about 2 MB of memory";
+                            last: true;
+                            Toggle { y: 19px; on <=> SettingsState.start-with-windows; toggled(v) => { SettingsState.start-with-windows-changed(v); } }
+                        }
                     }
-                    if SettingsState.section == 2: VerticalLayout {
+                    if SettingsState.section == 1: VerticalLayout {
                         Row {
                             icon: @image-url("icons/keyboard.svg");
                             title: "Snip";
@@ -433,7 +444,7 @@ export component SettingsPanel inherits Rectangle {
                             wrap: word-wrap;
                         }
                     }
-                    if SettingsState.section == 3: VerticalLayout {
+                    if SettingsState.section == 2: VerticalLayout {
                         Row {
                             icon: @image-url("icons/folder.svg");
                             title: "Save folder";
@@ -457,30 +468,7 @@ export component SettingsPanel inherits Rectangle {
                             }
                         }
                     }
-                    if SettingsState.section == 4: VerticalLayout {
-                        Row {
-                            icon: @image-url("icons/frame.svg");
-                            title: "Theme";
-                            help: "Light or dark, or follow the Windows setting";
-                            last: true;
-                            Choice {
-                                y: 15px;
-                                options: [{ key: "system", label: "Windows" }, { key: "light", label: "Light" }, { key: "dark", label: "Dark" }];
-                                value <=> SettingsState.theme;
-                                picked => { SettingsState.changed(); }
-                            }
-                        }
-                    }
-                    if SettingsState.section == 5: VerticalLayout {
-                        Row {
-                            icon: @image-url("icons/power.svg");
-                            title: "Start with Windows";
-                            help: "Glint waits in the tray, using about 2 MB of memory";
-                            last: true;
-                            Toggle { y: 19px; on <=> SettingsState.start-with-windows; toggled(v) => { SettingsState.start-with-windows-changed(v); } }
-                        }
-                    }
-                    if SettingsState.section == 6: VerticalLayout {
+                    if SettingsState.section == 3: VerticalLayout {
                         spacing: 10px;
                         Text {
                             text: "Glint " + SettingsState.version;
