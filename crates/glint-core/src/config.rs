@@ -14,13 +14,14 @@ pub struct Config {
     /// Use the Print Screen key for a region snip. Glint turns off the Windows setting
     /// that gives Print Screen to the Snipping Tool only after you agree in the tray menu.
     pub print_screen: bool,
-    /// Play no sound and show no flash on capture.
-    pub quiet: bool,
+    /// Re-capture HDR monitors through DXGI and tone-map them. Better colours for HDR games and
+    /// video, about 200 ms slower. Desktop content looks right without it.
+    pub hdr_capture: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { hotkeys: Hotkeys::default(), save_dir: None, preview_seconds: 6, print_screen: false, quiet: false }
+        Self { hotkeys: Hotkeys::default(), save_dir: None, preview_seconds: 6, print_screen: false, hdr_capture: false }
     }
 }
 
