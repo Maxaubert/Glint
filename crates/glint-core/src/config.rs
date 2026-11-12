@@ -17,11 +17,13 @@ pub struct Config {
     /// Re-capture HDR monitors through DXGI and tone-map them. Better colours for HDR games and
     /// video, about 200 ms slower. Desktop content looks right without it.
     pub hdr_capture: bool,
+    /// Snip as soon as the mouse is released, instead of waiting for Enter or a double-click.
+    pub capture_on_release: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { hotkeys: Hotkeys::default(), save_dir: None, preview_seconds: 6, print_screen: false, hdr_capture: false }
+        Self { hotkeys: Hotkeys::default(), save_dir: None, preview_seconds: 6, print_screen: false, hdr_capture: false, capture_on_release: false }
     }
 }
 

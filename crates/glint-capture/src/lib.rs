@@ -63,6 +63,20 @@ pub fn capture_desktop(hdr: bool) -> Result<Frame, String> {
     Ok(Frame { image, origin: (vb.x, vb.y), monitors, notes })
 }
 
+/// A made-up desktop (a colour gradient) with the real monitor layout. End-to-end tests use it,
+/// because a hidden test desktop has no screen to copy from.
+pub fn synthetic_desktop() -> Frame {
+    let monitors = monitors::enumerate();
+    let vb = virtual_bounds(&monitors);
+    let mut image = Image::new(vb.w.max(1) as u32, vb.h.max(1) as u32);
+    let (w, h) = (image.width as usize, image.height as usize);
+    for (i, px) in image.data.chunks_exact_mut(4).enumerate() {
+        let (x, y) = (i % w, i / w);
+        px.copy_from_slice(&[(x * 255 / w) as u8, (y * 255 / h) as u8, 128, 255]);
+    }
+    Frame { image, origin: (vb.x, vb.y), monitors, notes: vec!["synthetic desktop".into()] }
+}
+
 /// Turns on per-monitor DPI awareness v2 for this process (tests and tools; the apps use a manifest).
 pub fn make_dpi_aware() {
     use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
