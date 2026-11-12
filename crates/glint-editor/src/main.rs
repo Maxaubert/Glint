@@ -584,9 +584,11 @@ fn main() {
                             ui.set_text_editing(false);
                         }
                         a.ed.pointer_down(x, y, m);
-                        true
+                        // The crop frame is drawn by the window; the picture does not change.
+                        a.ed.tool != Tool::Crop
                     }
                     "up" => {
+                        let crop = a.ed.tool == Tool::Crop;
                         a.ed.pointer_up(x, y, m);
                         if a.ed.crop_waiting() {
                             let with = with_settle.clone();
@@ -596,13 +598,17 @@ fn main() {
                                 })
                             });
                         }
-                        true
+                        !crop
                     }
                     _ => {
                         ui.set_cursor(a.ed.cursor(x, y).into());
                         if a.ed.is_dragging() {
+                            // Dragging the crop frame only moves the window's overlay: no
+                            // re-render and no new picture per mouse move (it lagged on big
+                            // pictures). The crop itself happens after letting go.
+                            let crop = a.ed.crop_dragging();
                             a.ed.pointer_move(x, y, m);
-                            true
+                            !crop
                         } else {
                             false
                         }
