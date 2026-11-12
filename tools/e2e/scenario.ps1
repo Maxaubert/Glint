@@ -15,6 +15,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, System.Text.StringBuilder s, int n);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -31,6 +32,8 @@ $env:GLINT_INSTANCE = "e2e-$PID"
 # A hidden desktop has no screen image to copy, so the daemon paints a gradient instead.
 # Real capture is covered by the glint-capture unit tests.
 $env:GLINT_TEST_SYNTHETIC = '1'
+# One theme for pixel checks.
+$env:GLINT_THEME = 'dark'
 # No global hotkeys in tests: they would steal keys from the owner's apps.
 @"
 preview_seconds = 30
@@ -50,6 +53,9 @@ function Wait-Until([scriptblock] $cond, [int] $ms = 5000) {
   while ($sw.ElapsedMilliseconds -lt $ms) { if (& $cond) { return $true }; Start-Sleep -Milliseconds 25 }
   return $false
 }
+# The editor's window (its title carries the image size, so it is found by process).
+function EdWin($p) { $p.Refresh(); $p.MainWindowHandle }
+function Title([IntPtr] $h) { $sb = New-Object System.Text.StringBuilder 256; [W]::GetWindowText($h, $sb, 256) | Out-Null; $sb.ToString() }
 function Png-Size([string] $path) {
   $b = [IO.File]::ReadAllBytes($path)
   $w = ([int]$b[16] -shl 24) -bor ([int]$b[17] -shl 16) -bor ([int]$b[18] -shl 8) -bor [int]$b[19]
@@ -86,6 +92,10 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   Glint @('region')
   Check 'overlay opens' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero })
   $ov = [W]::FindWindow('GlintOverlay', [NullString]::Value)
+  if ($env:GLINT_TEST_DUMP) {      # keep the overlay as painted (the hint with mouse icons)
+    Start-Sleep -Milliseconds 300
+    Copy-Item -Force "$work\out\overlay-paint.png" "$PSScriptRoot\..\..\.e2e\overlay-hint.png" -ErrorAction SilentlyContinue
+  }
   [W]::PostMessage($ov, 0x0200, [IntPtr]0, (LParam 100 100)) | Out-Null   # WM_MOUSEMOVE
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 100 100)) | Out-Null   # WM_LBUTTONDOWN
   foreach ($i in 1..10) { [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam (100 + 30 * $i) (100 + 20 * $i))) | Out-Null }
@@ -168,15 +178,16 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   $g = [System.Drawing.Graphics]::FromImage($bmp); $g.Clear([System.Drawing.Color]::White); $g.Dispose()
   $bmp.Save($png, [System.Drawing.Imaging.ImageFormat]::Png); $bmp.Dispose()
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'e2e.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'e2e.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'editor window opens' $okWin
+  if ($okWin) { $t = Title (EdWin $ed); Check 'title shows the image size' ($t -like 'e2e.png (800 * 500) - Glint') $t }
   if ($okWin) {
     Start-Sleep -Milliseconds 800
-    $hw = [W]::FindWindow([NullString]::Value, 'e2e.png - Glint')
+    $hw = EdWin $ed
     $rc = New-Object W+RECT; [W]::GetClientRect($hw, [ref]$rc) | Out-Null
     $s = [W]::GetDpiForWindow($hw) / 96.0
     $cw = $rc.R; $ch = $rc.B
-    $top = 50 * $s; $areaH = $ch - $top - 26 * $s
+    $top = 64 * $s; $areaH = $ch - (64 + 84) * $s
     $fit = [math]::Min(1, [math]::Min(($cw - 24 * $s) / 800, ($areaH - 24 * $s) / 500))
     $x0 = ($cw - 800 * $fit) / 2; $y0 = $top + ($areaH - 500 * $fit) / 2
     function ImgPt([double] $x, [double] $y) { LParam ([int]($x0 + $x * $fit)) ([int]($y0 + $y * $fit)) }
@@ -203,9 +214,18 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       New-Item -ItemType Directory -Force "$PSScriptRoot\..\..\.e2e" | Out-Null
       Copy-Item -Force "$work\out\editor-tooltip.png" "$PSScriptRoot\..\..\.e2e\editor-tooltip.png"
       $tb = New-Object System.Drawing.Bitmap "$work\out\editor-tooltip.png"
-      $px = $tb.GetPixel([int](25 * $s), [int](70 * $s)); $tb.Dispose()
+      $px = $tb.GetPixel([int](200 * $s), [int](230 * $s)); $tb.Dispose()   # tooltip below (200,200)
       Check 'toolbar tooltip draws' ($px.R -ge 0x24 -and $px.R -le 0x34 -and $px.B -ge 0x2a -and $px.B -le 0x3a) "($($px.R),$($px.G),$($px.B))"
     } else { Check 'tooltip snapshot written' $false }
+    # The Copy button's checkmark (F10 test hook), kept for a look.
+    Key 0x79
+    Start-Sleep -Milliseconds 450
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Move-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-copied.png"
+    }
+    Start-Sleep -Milliseconds 1300
     DragImg 100 100 400 300        # arrow (default tool)
     Key 0x4F                       # O = ellipse
     DragImg 500 100 700 300
@@ -246,11 +266,11 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   $g = [System.Drawing.Graphics]::FromImage($big); $g.Clear([System.Drawing.Color]::FromArgb(30, 60, 90)); $g.Dispose()
   $big.Save($bigPng, [System.Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $bigPng, '--name', 'big.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'big.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'big image: editor opens' $okWin
   if ($okWin) {
     Start-Sleep -Milliseconds 1200
-    $hw = [W]::FindWindow([NullString]::Value, 'big.png - Glint')
+    $hw = EdWin $ed
     $wr = New-Object W+RECT; [W]::GetWindowRect($hw, [ref]$wr) | Out-Null
     $sw = [W]::GetSystemMetrics(0); $sh = [W]::GetSystemMetrics(1)
     Check 'big image: window fits on the screen' (($wr.R - $wr.L) -le $sw -and ($wr.B - $wr.T) -le $sh) "window $($wr.R - $wr.L)x$($wr.B - $wr.T), screen ${sw}x${sh}"
@@ -270,6 +290,18 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       Check 'big image: crop frame bottom line on screen' $white "image ends at row $last"
       Remove-Item "$work\out\editor-window.png"
     }
+    # The gear's settings overlay over a picture (F8 test hook); Esc closes the overlay only.
+    Key 0x77
+    Start-Sleep -Milliseconds 400
+    Remove-Item "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-settings.png"
+    }
+    Key 0x1B
+    Start-Sleep -Milliseconds 300
+    Check 'Esc closes the settings overlay, not the editor' (-not $ed.HasExited)
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 
@@ -277,11 +309,11 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   #    and it crops by itself after a pause (no Enter).
   Remove-Item "$work\out\editor-export.png", "$work\out\editor-window.png" -ErrorAction SilentlyContinue
   $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'crop.png') -PassThru
-  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'crop.png - Glint') -ne [IntPtr]::Zero } 10000
+  $okWin = Wait-Until { (EdWin $ed) -ne [IntPtr]::Zero } 10000
   Check 'crop: editor opens' $okWin
   if ($okWin) {
     Start-Sleep -Milliseconds 800
-    $hw = [W]::FindWindow([NullString]::Value, 'crop.png - Glint')
+    $hw = EdWin $ed
     Key 0x43                       # C = crop
     [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt 790 490)) | Out-Null
     [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt 798 498)) | Out-Null
@@ -317,6 +349,27 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
     }
   }
   if (-not $ed.HasExited) { $ed.Kill() }
+
+  # 10. Settings (the tray's Settings: the editor with only the settings overlay): opens, saves a
+  #     change to config.toml at once, Esc closes the window.
+  $st = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--settings') -PassThru
+  $okSet = Wait-Until { [W]::FindWindow([NullString]::Value, 'Glint settings') -ne [IntPtr]::Zero } 10000
+  Check 'settings window opens' $okSet
+  if ($okSet) {
+    Start-Sleep -Milliseconds 700
+    $hw = [W]::FindWindow([NullString]::Value, 'Glint settings')
+    Remove-Item "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\settings-window.png"
+    }
+    Key 0x78                       # F9 (test hook) = flip the capture sound
+    Check 'settings saves at once' (Wait-Until { (Get-Content $env:GLINT_CONFIG -Raw) -match 'capture_sound = false' })
+    Key 0x1B                       # Esc closes
+    Check 'Esc closes settings' ($st.WaitForExit(5000))
+  }
+  if (-not $st.HasExited) { $st.Kill() }
 
   Glint @('quit')
   Check 'quit stops the daemon' ($daemon.WaitForExit(5000))

@@ -56,14 +56,14 @@ fn read_dword(key: HKEY, name: PCWSTR) -> Option<u32> {
     Some(v)
 }
 
+/// The Run value: glint.exe next to the running program (the daemon or the editor), so both can
+/// read and change the setting.
 fn run_command() -> String {
-    let exe = std::env::current_exe()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+    let exe = crate::paths::sibling_exe("glint.exe").display().to_string();
     format!("\"{exe}\" --background")
 }
 
-/// True when the Run key points at this executable.
+/// True when the Run key points at Glint's glint.exe.
 pub fn starts_with_windows() -> bool {
     let Some(key) = open(RUN, false) else {
         return false;

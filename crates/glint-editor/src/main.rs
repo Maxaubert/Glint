@@ -9,6 +9,9 @@
 
 slint::include_modules!();
 
+mod settings;
+mod winicon;
+
 use glint_core::{clipboard, Image};
 use glint_editor::editor::{Editor, Mods, PALETTE};
 use glint_editor::model::{text_size, Tool};
@@ -27,9 +30,7 @@ use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
-use windows::Win32::UI::WindowsAndMessaging::{
-    MessageBoxW, IDCANCEL, IDYES, MB_ICONWARNING, MB_YESNOCANCEL,
-};
+use windows::Win32::UI::WindowsAndMessaging::{MessageBoxW, MB_ICONWARNING};
 
 #[derive(Default)]
 struct Args {
@@ -52,6 +53,7 @@ fn parse_args() -> Args {
             "--temp" => a.temp = true,
             "--open" => a.open = true,
             "--paste" => a.paste = true,
+            "--settings" => {}
             other if !other.starts_with("--") => a.file = Some(PathBuf::from(other)),
             _ => {}
         }
@@ -158,6 +160,8 @@ struct App {
     temp_file: Option<PathBuf>,
     state: State,
     status: String,
+    /// Opened from the tray for settings only: no picture, closing settings closes the window.
+    settings_only: bool,
 }
 
 impl App {
@@ -178,6 +182,7 @@ impl App {
             temp_file: None,
             state,
             status: String::new(),
+            settings_only: false,
         }
     }
 
@@ -197,7 +202,8 @@ impl App {
         match clipboard::set_image(&img, hwnd()) {
             Ok(()) => {
                 self.ed.dirty = false;
-                self.status = "Copied to the clipboard".into();
+                // The Copy button turns into a checkmark instead of a status message.
+                self.status.clear();
                 true
             }
             Err(e) => {
@@ -215,15 +221,32 @@ impl App {
             .filter(|d| d.is_dir())
             .unwrap_or_else(|| self.save_dir.clone());
         let _ = std::fs::create_dir_all(&dir);
-        let Some(path) = rfd::FileDialog::new()
+        // Start with the format chosen in Settings; the others stay available.
+        let fmt = glint_core::config::Config::load(&glint_core::paths::config_file())
+            .map(|c| c.save_format)
+            .unwrap_or_default();
+        let mut filters = vec![
+            ("png", "PNG image", vec!["png"]),
+            ("jpg", "JPEG image", vec!["jpg", "jpeg"]),
+            ("webp", "WebP image (lossless)", vec!["webp"]),
+        ];
+        if let Some(i) = filters.iter().position(|f| f.0 == fmt) {
+            let f = filters.remove(i);
+            filters.insert(0, f);
+        }
+        let ext = filters[0].0;
+        let stem = Path::new(&self.name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Glint".into());
+        let mut dialog = rfd::FileDialog::new()
             .set_title("Save the image")
             .set_directory(&dir)
-            .set_file_name(&self.name)
-            .add_filter("PNG image", &["png"])
-            .add_filter("JPEG image", &["jpg", "jpeg"])
-            .add_filter("WebP image (lossless)", &["webp"])
-            .save_file()
-        else {
+            .set_file_name(format!("{stem}.{ext}"));
+        for (_, label, exts) in &filters {
+            dialog = dialog.add_filter(*label, exts);
+        }
+        let Some(path) = dialog.save_file() else {
             return;
         };
         let img = self.r.export(&self.ed);
@@ -238,25 +261,6 @@ impl App {
             }
             Err(e) => message(&format!("Could not save the image.\n\n{e}")),
         }
-    }
-
-    fn hint(&self) -> String {
-        if !self.status.is_empty() {
-            return self.status.clone();
-        }
-        match self.ed.tool {
-            Tool::Select => "Click a shape to select it. Drag to move. Delete removes it. Arrow keys nudge.",
-            Tool::Arrow => "Drag to draw an arrow. Shift snaps to 15\u{00B0}. Drag the middle handle to curve it.",
-            Tool::Rect => "Drag to draw a box. Shift makes a square, Alt draws from the centre.",
-            Tool::Ellipse => "Drag to circle something. Shift makes a circle, Alt draws from the centre.",
-            Tool::Highlight => "Drag over text to highlight it. Shift keeps the line straight.",
-            Tool::Pen => "Draw freehand. Shift draws a straight line.",
-            Tool::Text => "Click to type. Enter finishes. Double-click text to edit it.",
-            Tool::Step => "Click to add numbered steps. They renumber when you delete one.",
-            Tool::Blur => "Drag over anything private to blur it. The blur is permanent in the saved image.",
-            Tool::Crop => "Drag a corner or edge. It crops a second after you let go. Enter crops now, Esc resets, Ctrl+Z undoes.",
-        }
-        .into()
     }
 }
 
@@ -343,9 +347,16 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
         }
         None => ui.set_crop_frame(CropFrame::default()),
     }
-    ui.set_status(app.hint().into());
+    // Only results of actions (copied, saved, errors); no tool hints (owner, 2026-11-12).
+    ui.set_status(app.status.clone().into());
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
-    ui.set_window_title(format!("{}{} - Glint", app.name, dot).into());
+    // The image size sits next to the name (owner, 2026-11-12): "shot.png (2524 x 1259) - Glint".
+    let (w, h) = app.ed.view_size();
+    if app.settings_only {
+        ui.set_window_title("Glint settings".into());
+    } else {
+        ui.set_window_title(format!("{} ({w} \u{00D7} {h}){dot} - Glint", app.name).into());
+    }
     match &app.ed.text_edit {
         Some(t) => {
             let v = app.ed.view();
@@ -369,32 +380,6 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
 }
 
 /// Asks before closing with unsaved, uncopied edits. Returns true when it is fine to close.
-fn confirm_close(app: &mut App) -> bool {
-    if !app.ed.dirty {
-        return true;
-    }
-    let text: Vec<u16> =
-        "Your edits are not saved or copied.\n\nCopy the image to the clipboard before closing?"
-            .encode_utf16()
-            .chain(Some(0))
-            .collect();
-    let answer = unsafe {
-        MessageBoxW(
-            hwnd(),
-            PCWSTR(text.as_ptr()),
-            windows::core::w!("Glint"),
-            MB_YESNOCANCEL | MB_ICONWARNING,
-        )
-    };
-    if answer == IDCANCEL {
-        return false;
-    }
-    if answer == IDYES {
-        return app.copy();
-    }
-    true
-}
-
 fn cursor_monitor() -> (glint_core::Rect, f32) {
     use windows::Win32::Foundation::POINT;
     use windows::Win32::Graphics::Gdi::{
@@ -421,6 +406,43 @@ fn cursor_monitor() -> (glint_core::Rect, f32) {
     }
 }
 
+/// Dark or light: the Theme setting ("system", "light", "dark"), "system" following Windows.
+/// `GLINT_THEME=light` or `dark` overrides both (tests).
+pub(crate) fn dark_now() -> bool {
+    match std::env::var("GLINT_THEME").as_deref() {
+        Ok("light") => return false,
+        Ok("dark") => return true,
+        _ => {}
+    }
+    let cfg =
+        glint_core::config::Config::load(&glint_core::paths::config_file()).unwrap_or_default();
+    match cfg.theme.as_str() {
+        "light" => false,
+        "dark" => true,
+        _ => system_dark(),
+    }
+}
+
+/// Whether Windows apps use dark mode (Settings > Personalization > Colors).
+fn system_dark() -> bool {
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+    let mut value: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let ok = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            windows::core::w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            windows::core::w!("AppsUseLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut _),
+            Some(&mut size),
+        )
+    };
+    // Missing value: Windows' default is light.
+    ok.is_ok() && value == 0
+}
+
 fn main() {
     use windows::Win32::UI::HiDpi::{
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
@@ -429,6 +451,7 @@ fn main() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
     let args = parse_args();
+    let settings_only = std::env::args().any(|a| a == "--settings");
     let mut file = args.file.clone();
     if args.open {
         file = pick_file();
@@ -437,6 +460,12 @@ fn main() {
         }
     }
     let image = match &file {
+        // Settings from the tray: no picture; the settings overlay covers the window.
+        _ if settings_only => Ok(Image {
+            width: 1,
+            height: 1,
+            data: vec![0; 4],
+        }),
         Some(p) => load_image(p),
         None => match clipboard::get_image(None) {
             Ok(Some(img)) => Ok(img),
@@ -484,13 +513,24 @@ fn main() {
     if args.temp {
         app.temp_file = file.clone();
     }
+    app.settings_only = settings_only;
     let app = Rc::new(RefCell::new(app));
 
     // Window size: the image at 100 % plus the toolbars, capped to 92 % of the work area.
-    let chrome = ((50.0 + 26.0 + 24.0) * scale) as i32;
+    // Room for the floating pills (64) and the dock (84) around the picture, plus a margin.
+    let chrome = ((64.0 + 84.0 + 24.0) * scale) as i32;
     let pad = (24.0 * scale) as i32;
-    let w = (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100);
-    let h = (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100);
+    let (w, h) = if settings_only {
+        (
+            ((960.0 * scale) as i32).min(work.w * 92 / 100),
+            ((660.0 * scale) as i32).min(work.h * 92 / 100),
+        )
+    } else {
+        (
+            (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100),
+            (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100),
+        )
+    };
     ui.window()
         .set_size(slint::PhysicalSize::new(w as u32, h as u32));
     ui.window().set_position(slint::PhysicalPosition::new(
@@ -502,7 +542,7 @@ fn main() {
         .iter()
         .map(|t| ToolItem {
             id: t.id().into(),
-            glyph: t.glyph().into(),
+            icon: slint::Image::load_from_svg_data(t.icon_svg()).unwrap_or_default(),
             tip: t.name().into(),
             key: t.key().to_string().into(),
         })
@@ -658,24 +698,38 @@ fn main() {
     }
     {
         let weak = ui.as_weak();
+        // Closing just closes, without asking about unsaved edits (owner, 2026-11-12).
         ui.window().on_close_requested(move || {
-            let app = app_ref();
-            let ok = confirm_close(&mut app.borrow_mut());
-            if ok {
-                if let Some(ui) = weak.upgrade() {
-                    let _ = ui.hide();
-                }
-                let _ = slint::quit_event_loop();
-                CloseRequestResponse::HideWindow
-            } else {
-                CloseRequestResponse::KeepWindowShown
+            if let Some(ui) = weak.upgrade() {
+                let _ = ui.hide();
             }
+            let _ = slint::quit_event_loop();
+            CloseRequestResponse::HideWindow
         });
     }
 
     refresh(&ui, &app.borrow());
     ui.invoke_focus_canvas();
+    settings::attach(&ui, settings_only);
+    if settings_only {
+        settings::open(&ui);
+    }
+    // Light or dark, as Windows is set; checked again every 2 s so a switch applies live.
+    ui.global::<Theme>().set_dark(dark_now());
+    let theme_timer = slint::Timer::default();
+    {
+        let weak = ui.as_weak();
+        theme_timer.start(TimerMode::Repeated, Duration::from_secs(2), move || {
+            if let Some(ui) = weak.upgrade() {
+                let dark = dark_now();
+                if ui.global::<Theme>().get_dark() != dark {
+                    ui.global::<Theme>().set_dark(dark);
+                }
+            }
+        });
+    }
     let _ = ui.show();
+    winicon::apply_soon();
     // Match stroke widths to the real window scale (the monitor guess can differ).
     app.borrow_mut().ed.scale = ui.window().scale_factor();
     let _ = slint::run_event_loop_until_quit();
@@ -736,14 +790,18 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         "undo" => a.ed.undo(),
         "redo" => a.ed.redo(),
         "copy" => {
-            a.copy();
+            if a.copy() {
+                ui.invoke_show_copied();
+            }
         }
         "save" => a.save(),
+        "settings" => {
+            settings::open(ui);
+            return false;
+        }
         "close" => {
-            if confirm_close(a) {
-                let _ = ui.hide();
-                let _ = slint::quit_event_loop();
-            }
+            let _ = ui.hide();
+            let _ = slint::quit_event_loop();
             return false;
         }
         "copy-close" => {
@@ -807,6 +865,17 @@ fn on_key(
     alt: bool,
 ) -> (bool, bool) {
     let _ = alt;
+    // Settings overlay open: Esc closes it, editor shortcuts are off.
+    if ui.get_settings_open() {
+        if is(text, Key::Escape) {
+            settings::close(ui);
+        } else if is(text, Key::F12) {
+            snapshot(ui);
+        } else if is(text, Key::F9) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+            settings::test_flip_sound(ui);
+        }
+        return (true, false);
+    }
     if is(text, Key::Escape) {
         if a.ed.text_edit.is_some() {
             a.ed.cancel_text();
@@ -828,7 +897,17 @@ fn on_key(
     // Tests only: F11 opens the arrow tool's tooltip (a hidden desktop has no real cursor, so
     // Windows ends a posted hover at once).
     if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
-        ui.invoke_show_tip("Arrow".into(), "A".into(), 61.0);
+        ui.invoke_show_tip("Arrow".into(), "A".into(), 200.0, 200.0);
+        return (true, false);
+    }
+    // Tests only: F8 opens the settings overlay (the gear).
+    if is(text, Key::F8) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        settings::open(ui);
+        return (true, false);
+    }
+    // Tests only: F10 plays the Copy button's checkmark (without touching the clipboard).
+    if is(text, Key::F10) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        ui.invoke_show_copied();
         return (true, false);
     }
     if a.ed.text_edit.is_some() {

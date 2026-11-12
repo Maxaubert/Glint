@@ -59,6 +59,11 @@ struct Overlay {
     moved: bool,
     cur: (i32, i32),
     capture_on_release: bool,
+    /// The snip hotkey as key names ("Win", "Shift", "S"): pressing it again cancels, so the hint
+    /// shows it next to Esc, drawn from the user's own setting.
+    close_keys: Vec<String>,
+    /// Ticks left of re-asserting top-most and the keyboard (see WM_TIMER).
+    assert_ticks: u32,
     done: Option<Outcome>,
 }
 
@@ -106,6 +111,7 @@ pub fn show(
     frame: Frame,
     last: Option<Rect>,
     capture_on_release: bool,
+    close_hotkey: &str,
     done: impl FnOnce(Outcome) + 'static,
 ) -> Result<(), String> {
     if is_open() {
@@ -160,15 +166,24 @@ pub fn show(
             moved: false,
             cur: (p.x, p.y),
             capture_on_release,
+            close_keys: close_hotkey
+                .split('+')
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
+                .collect(),
+            assert_ticks: ASSERT_TICKS,
             done: None,
         })
     });
     ON_DONE.with(|d| *d.borrow_mut() = Some(Box::new(done)));
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(hwnd));
+        force_foreground(hwnd);
         let _ = UpdateWindow(hwnd);
+        // The taskbar and a closing Start menu can end up above a top-most window, and Windows may
+        // keep the keyboard elsewhere: for the first second, put the overlay back on top and take
+        // the keyboard again whenever it lost either.
+        let _ = SetTimer(Some(hwnd), ASSERT_TIMER, 80, None);
     }
     Ok(())
 }
@@ -387,10 +402,7 @@ impl Overlay {
             }
             self.paint_size(&l, &t, dpi);
         }
-        let drawing = matches!(self.drag, Drag::New { .. } | Drag::Handle { .. });
-        if !drawing {
-            self.paint_hint(dpi);
-        }
+        self.paint_hint(dpi);
         unsafe {
             let _ = BitBlt(hdc, 0, 0, self.vb.w, self.vb.h, Some(dc), 0, 0, SRCCOPY);
         }
@@ -448,34 +460,140 @@ impl Overlay {
     }
 
     fn paint_hint(&self, dpi: u32) {
+        use gfx::MouseButton::{Left, Middle, Right};
         let mon = local_rect(self.monitor().rect, &self.vb);
-        let font = Font::ui(px(12, dpi));
-        let text = if self.sel.is_some() && self.capture_on_release {
-            "Let go to snip   \u{00B7}   Esc cancel"
+        // What each input does: icons (a mouse with the button lit, or key caps), then a label.
+        // Several icons in one group mean "any of these".
+        let keys = |names: &[&str]| Hint::Keys(names.iter().map(|s| s.to_string()).collect());
+        let mut items: Vec<(Vec<Hint>, &str)> = Vec::new();
+        if self.sel.is_some() && !self.capture_on_release {
+            items.push((vec![keys(&["Enter"])], "Snip"));
+            items.push((vec![Hint::Mouse(Left)], "Adjust with the handles"));
         } else if self.sel.is_some() {
-            "Enter to snip   \u{00B7}   Drag handles or arrows to adjust   \u{00B7}   Esc cancel"
-        } else if self.last.is_some() {
-            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Middle-click last area   \u{00B7}   Esc cancel"
+            items.push((vec![Hint::Mouse(Left)], "Let go to snip"));
         } else {
-            "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Esc cancel"
+            items.push((vec![Hint::Mouse(Left)], "Drag to snip"));
+            items.push((vec![Hint::Mouse(Right)], "Full screen"));
+            if self.last.is_some() {
+                items.push((vec![Hint::Mouse(Middle)], "Last area"));
+            }
+        }
+        let mut cancel = vec![keys(&["Esc"])];
+        if !self.close_keys.is_empty() {
+            cancel.push(Hint::Keys(self.close_keys.clone()));
+        }
+        items.push((cancel, "Cancel"));
+
+        let dc = self.back.dc;
+        let font = Font::ui(px(12, dpi));
+        let small = Font::ui(px(11, dpi));
+        let key_font = Font::ui_bold(px(10, dpi));
+        let (mw, mh) = gfx::mouse_icon_size(dpi);
+        let key_h = px(19, dpi);
+        let cap_gap = px(3, dpi);
+        let or_w = gfx::text_size(dc, &small, "or").0 + px(10, dpi);
+        let cap_w = |k: &str| {
+            if k == "Win" {
+                key_h + px(4, dpi)
+            } else {
+                (gfx::text_size(dc, &key_font, k).0 + px(12, dpi)).max(key_h)
+            }
         };
-        let (tw, _) = gfx::text_size(self.back.dc, &font, text);
-        let w = tw + px(16, dpi);
+        let icon_w = |h: &Hint| match h {
+            Hint::Mouse(_) => mw,
+            Hint::Keys(ks) => {
+                ks.iter().map(|k| cap_w(k)).sum::<i32>() + cap_gap * (ks.len() as i32 - 1)
+            }
+        };
+        let group_w = |g: &[Hint]| g.iter().map(&icon_w).sum::<i32>() + or_w * (g.len() as i32 - 1);
+        let (pad, icon_gap, group_gap) = (px(12, dpi), px(7, dpi), px(18, dpi));
+        let widths: Vec<(i32, i32)> = items
+            .iter()
+            .map(|(g, label)| (group_w(g), gfx::text_size(dc, &font, label).0))
+            .collect();
+        let w = 2 * pad
+            + widths.iter().map(|(a, b)| a + icon_gap + b).sum::<i32>()
+            + group_gap * (items.len() as i32 - 1);
+        let h = px(32, dpi);
         let x = mon.x + (mon.w - w) / 2;
         let y = mon.y + px(16, dpi);
-        // Skip the hint when the cursor or selection is right under it.
-        let hint = Rect::new(x, y, w, px(30, dpi));
-        let (cx, cy) = (self.cur.0 - self.vb.x, self.cur.1 - self.vb.y);
-        let near = Rect::new(
-            hint.x - px(20, dpi),
-            hint.y - px(20, dpi),
-            hint.w + px(40, dpi),
-            hint.h + px(40, dpi),
+        // Always shown, also with the cursor under it (owner, 2026-11-12).
+        let pill = Rect::new(x, y, w, h);
+        gfx::round_rect(
+            dc,
+            &pill,
+            px(8, dpi),
+            rgb(24, 24, 28),
+            Some(rgb(60, 60, 70)),
         );
-        if near.contains(cx, cy) {
-            return;
+        let mut at = x + pad;
+        let mid = y + h / 2;
+        for ((group, label), (_, tw)) in items.iter().zip(&widths) {
+            for (n, hint) in group.iter().enumerate() {
+                if n > 0 {
+                    let r = Rect::new(at, y, or_w, h);
+                    gfx::text(dc, &small, "or", &r, rgb(150, 150, 160));
+                    at += or_w;
+                }
+                match hint {
+                    Hint::Mouse(b) => gfx::mouse_icon(
+                        &self.back,
+                        at,
+                        mid - mh / 2,
+                        dpi,
+                        *b,
+                        rgb(225, 225, 232),
+                        ACCENT,
+                    ),
+                    Hint::Keys(ks) => {
+                        let mut kx = at;
+                        for k in ks {
+                            let cw = cap_w(k);
+                            let r = Rect::new(kx, mid - key_h / 2, cw, key_h);
+                            gfx::key_cap(dc, &key_font, k, &r, dpi);
+                            kx += cw + cap_gap;
+                        }
+                    }
+                }
+                at += icon_w(hint);
+            }
+            at += icon_gap;
+            let r = Rect::new(at, y, *tw, h);
+            gfx::text(dc, &font, label, &r, rgb(240, 240, 245));
+            at += tw + group_gap;
         }
-        self.pill(text, &font, x, y, dpi, &mon);
+    }
+}
+
+/// One icon in the overlay hint.
+enum Hint {
+    Mouse(gfx::MouseButton),
+    /// Key caps for a key or a combination ("Win", "Shift", "S"); Win is drawn as its logo.
+    Keys(Vec<String>),
+}
+
+const ASSERT_TIMER: usize = 7;
+const ASSERT_TICKS: u32 = 13;
+
+/// Brings `hwnd` to the front with the keyboard, also when another app has the foreground: joins
+/// that app's input queue for the moment, which Windows allows for a window the user just asked for.
+fn force_foreground(hwnd: HWND) {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    unsafe {
+        let fg = GetForegroundWindow();
+        let me = GetCurrentThreadId();
+        let other = if fg.is_invalid() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, None)
+        };
+        let joined = other != 0 && other != me && AttachThreadInput(me, other, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(Some(hwnd));
+        if joined {
+            let _ = AttachThreadInput(me, other, false);
+        }
     }
 }
 
@@ -528,6 +646,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 Some(LRESULT(0))
             }
             WM_ERASEBKGND => Some(LRESULT(1)),
+            WM_TIMER if wp.0 == ASSERT_TIMER => {
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+                if GetForegroundWindow() != hwnd {
+                    force_foreground(hwnd);
+                }
+                o.assert_ticks = o.assert_ticks.saturating_sub(1);
+                if o.assert_ticks == 0 {
+                    let _ = KillTimer(Some(hwnd), ASSERT_TIMER);
+                }
+                Some(LRESULT(0))
+            }
             WM_LBUTTONDOWN => {
                 let (x, y) = o.to_virtual(lp);
                 o.mouse_down(x, y);

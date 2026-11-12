@@ -11,10 +11,8 @@ mod app;
 mod feedback;
 mod gfx;
 mod hook;
-mod icon;
 mod log;
 mod overlay;
-mod system;
 mod toast;
 mod wind;
 
@@ -55,7 +53,9 @@ fn main() {
     let _mutex = unsafe { CreateMutexW(None, true, &windows::core::HSTRING::from(name)) };
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         if !background {
-            forward(&cmd.map(|_| text).unwrap_or_else(|| "region".into()));
+            // Started again from the Start menu (no command): open Settings, the only window
+            // Glint has now that there is no tray icon.
+            forward(&cmd.map(|_| text).unwrap_or_else(|| "settings".into()));
         }
         return;
     }
@@ -63,6 +63,12 @@ fn main() {
         let _ = OleInitialize(None);
     }
     clean_temp();
+    // Started by hand (not at sign-in): show Settings, so it is clear Glint is running.
+    let cmd = cmd.or(if background {
+        None
+    } else {
+        Some(Command::Settings)
+    });
     app::run(cmd);
 }
 

@@ -37,6 +37,11 @@ fn u32_at(b: &[u8], i: usize) -> u32 {
     u32::from_le_bytes(b[i..i + 4].try_into().unwrap())
 }
 
+/// True when Wind is running (its magnifier window exists).
+pub fn running() -> bool {
+    unsafe { FindWindowW(w!("WindMagnifierWnd"), w!("Wind")).is_ok_and(|h| !h.is_invalid()) }
+}
+
 /// Asks Wind for one unzoomed frame. None when Wind is not running, not zoomed, or too old.
 /// `max_w`, `max_h`: the largest monitor, to size the section.
 pub fn grab(max_w: u32, max_h: u32) -> Option<WindFrame> {

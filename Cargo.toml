@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/glint-core", "crates/glint-capture", "crates/glint", "crates/glint-editor"]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 rust-version = "1.85"
@@ -41,6 +41,14 @@ windows = { version = "=0.62.2", features = [
   "Win32_UI_Shell_Common",
   "Win32_Security",
   "Win32_Storage_FileSystem",
+  "Foundation",
+  "Graphics",
+  "Graphics_Capture",
+  "Graphics_DirectX",
+  "Graphics_DirectX_Direct3D11",
+  "Win32_System_WinRT",
+  "Win32_System_WinRT_Graphics_Capture",
+  "Win32_System_WinRT_Direct3D11",
 ] }
 
 [profile.release]

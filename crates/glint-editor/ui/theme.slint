@@ -1,0 +1,24 @@
+// Colours shared by the editor and the settings window. `dark` follows Windows (main.rs).
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> bg: dark ? #111114 : #e9e9ee;
+    out property <color> panel: dark ? #1f1f25f2 : #fbfbfdf5;
+    out property <color> panel-edge: dark ? #ffffff17 : #0000001a;
+    out property <color> pill: dark ? #26262dee : #fbfbfdf2;
+    out property <color> hover: dark ? #ffffff17 : #0000000f;
+    out property <color> accent: #8b5cf6;
+    out property <color> accent-hover: #9d74f7;
+    out property <color> text: dark ? #ececf1 : #1b1b1f;
+    out property <color> dim-text: dark ? #9a9aa6 : #6b6b78;
+    out property <color> disabled: dark ? #ececf150 : #1b1b1f40;
+    out property <color> sep: dark ? #ffffff1f : #0000001c;
+    out property <color> tip-bg: dark ? #2a2a31 : #ffffff;
+    out property <color> tip-edge: dark ? #ffffff1f : #0000001f;
+    out property <color> key-bg: dark ? #ffffff12 : #0000000a;
+    out property <color> shadow: dark ? #00000099 : #0000002e;
+    out property <color> swatch-edge: dark ? #ffffff40 : #00000030;
+    // The Copy pill after a copy: white in dark mode, near-black in light mode.
+    out property <color> done-bg: dark ? #ffffff : #1b1b1f;
+    out property <color> done-text: dark ? #17171b : #ffffff;
+}
