@@ -195,7 +195,8 @@ impl App {
         match clipboard::set_image(&img, hwnd()) {
             Ok(()) => {
                 self.ed.dirty = false;
-                self.status = "Copied to the clipboard".into();
+                // The Copy button turns into a checkmark instead of a status message.
+                self.status.clear();
                 true
             }
             Err(e) => {
@@ -685,7 +686,9 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         "undo" => a.ed.undo(),
         "redo" => a.ed.redo(),
         "copy" => {
-            a.copy();
+            if a.copy() {
+                ui.invoke_show_copied();
+            }
         }
         "save" => a.save(),
         "close" => {
@@ -776,6 +779,11 @@ fn on_key(
     // Windows ends a posted hover at once).
     if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
         ui.invoke_show_tip("Arrow".into(), "A".into(), 61.0);
+        return (true, false);
+    }
+    // Tests only: F10 plays the Copy button's checkmark (without touching the clipboard).
+    if is(text, Key::F10) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        ui.invoke_show_copied();
         return (true, false);
     }
     if a.ed.text_edit.is_some() {

@@ -210,6 +210,15 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       $px = $tb.GetPixel([int](25 * $s), [int](70 * $s)); $tb.Dispose()
       Check 'toolbar tooltip draws' ($px.R -ge 0x24 -and $px.R -le 0x34 -and $px.B -ge 0x2a -and $px.B -le 0x3a) "($($px.R),$($px.G),$($px.B))"
     } else { Check 'tooltip snapshot written' $false }
+    # The Copy button's checkmark (F10 test hook), kept for a look.
+    Key 0x79
+    Start-Sleep -Milliseconds 450
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Move-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-copied.png"
+    }
+    Start-Sleep -Milliseconds 1300
     DragImg 100 100 400 300        # arrow (default tool)
     Key 0x4F                       # O = ellipse
     DragImg 500 100 700 300

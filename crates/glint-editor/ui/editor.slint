@@ -84,6 +84,9 @@ component IconButton inherits Rectangle {
 component TextButton inherits Rectangle {
     in property <string> glyph;
     in property <string> label;
+    // Copy button: the icon turns into a checkmark and the label says what happened.
+    in property <bool> done;
+    in property <string> done-label;
     in property <string> tip;
     in property <string> key;
     in property <bool> primary;
@@ -91,20 +94,38 @@ component TextButton inherits Rectangle {
     callback hovered(string, string, length);
     height: 34px;
     border-radius: 6px;
-    background: root.primary ? (ta.has-hover ? #9d74f7 : Theme.accent) : (ta.has-hover ? Theme.hover : transparent);
+    background: root.done ? #22c55e2e : root.primary ? (ta.has-hover ? #9d74f7 : Theme.accent) : (ta.has-hover ? Theme.hover : transparent);
+    animate background { duration: 200ms; }
     HorizontalLayout {
         padding-left: 10px;
         padding-right: 12px;
         spacing: 7px;
-        Text {
-            text: root.glyph;
-            font-family: Theme.icons;
-            font-size: 14px;
-            color: Theme.text;
-            vertical-alignment: center;
+        Rectangle {
+            width: 16px;
+            Text {
+                text: root.glyph;
+                font-family: Theme.icons;
+                font-size: root.done ? 6px : 14px;
+                opacity: root.done ? 0 : 1;
+                animate font-size, opacity { duration: 160ms; easing: ease-in; }
+                color: Theme.text;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            Text {
+                text: "\u{E73E}";
+                font-family: Theme.icons;
+                font-size: root.done ? 15px : 4px;
+                opacity: root.done ? 1 : 0;
+                animate font-size { duration: 320ms; easing: cubic-bezier(0.34, 1.56, 0.64, 1); }
+                animate opacity { duration: 160ms; }
+                color: #4ade80;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
         }
         Text {
-            text: root.label;
+            text: root.done && root.done-label != "" ? root.done-label : root.label;
             font-size: 13px;
             color: Theme.text;
             vertical-alignment: center;
@@ -166,6 +187,17 @@ export component EditorWindow inherits Window {
     in property <bool> can-redo;
     in property <string> status;
     property <bool> status-visible;
+    // The Copy button shows a checkmark for a moment after a copy.
+    property <bool> copied;
+    public function show-copied() {
+        root.copied = false;
+        root.copied = true;
+    }
+    Timer {
+        interval: 1500ms;
+        running: root.copied;
+        triggered => { root.copied = false; }
+    }
     changed status => { root.status-visible = root.status != ""; }
     in property <string> cursor: "cross";
     // Pen and highlighter: an outlined circle as wide as the stroke replaces the cursor
@@ -371,6 +403,8 @@ export component EditorWindow inherits Window {
                         y: 8px;
                         glyph: "\u{E8C8}";
                         label: "Copy";
+                        done: root.copied;
+                        done-label: "Copied";
                         tip: "Copy to the clipboard";
                         key: "Ctrl+C";
                         clicked => {
