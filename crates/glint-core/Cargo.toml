@@ -1,0 +1,18 @@
+[package]
+name = "glint-core"
+description = "Shared types for Glint: geometry, images, encoding, clipboard, config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+png.workspace = true
+serde.workspace = true
+toml.workspace = true
+windows.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+ico = "0.6"

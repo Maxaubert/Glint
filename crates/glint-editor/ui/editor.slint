@@ -1,0 +1,383 @@
+// The Glint editor window: a toolbar, the canvas, and a status line.
+// All drawing happens in Rust (tiny-skia); this file only lays out and forwards input.
+
+export struct ToolItem {
+    id: string,
+    glyph: string,
+    tip: string,
+}
+
+global Theme {
+    out property <color> bg: #141417;
+    out property <color> bar: #1f1f24;
+    out property <color> hover: #ffffff17;
+    out property <color> accent: #8b5cf6;
+    out property <color> text: #ececf1;
+    out property <color> dim-text: #9a9aa6;
+    out property <string> icons: "Segoe Fluent Icons";
+}
+
+component IconButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> tip;
+    in property <bool> active;
+    in property <bool> enabled: true;
+    callback clicked;
+    callback hovered(string);
+    width: 34px;
+    height: 34px;
+    border-radius: 6px;
+    background: root.active ? Theme.accent : (ta.has-hover && root.enabled ? Theme.hover : transparent);
+    Text {
+        text: root.glyph;
+        font-family: Theme.icons;
+        font-size: 15px;
+        color: root.enabled ? Theme.text : #ececf150;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    ta := TouchArea {
+        enabled: root.enabled;
+        clicked => { root.clicked(); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+    }
+}
+
+component TextButton inherits Rectangle {
+    in property <string> glyph;
+    in property <string> label;
+    in property <string> tip;
+    in property <bool> primary;
+    callback clicked;
+    callback hovered(string);
+    height: 34px;
+    border-radius: 6px;
+    background: root.primary ? (ta.has-hover ? #9d74f7 : Theme.accent) : (ta.has-hover ? Theme.hover : transparent);
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 7px;
+        Text {
+            text: root.glyph;
+            font-family: Theme.icons;
+            font-size: 14px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.label;
+            font-size: 13px;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        clicked => { root.clicked(); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+    }
+}
+
+component Swatch inherits Rectangle {
+    in property <color> swatch;
+    in property <bool> active;
+    in property <string> tip;
+    callback clicked;
+    callback hovered(string);
+    width: 26px;
+    height: 34px;
+    Rectangle {
+        width: 20px;
+        height: 20px;
+        border-radius: 10px;
+        background: root.swatch;
+        border-width: root.active ? 2px : 1px;
+        border-color: root.active ? Theme.text : #ffffff40;
+    }
+    TouchArea {
+        clicked => { root.clicked(); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+    }
+}
+
+component Separator inherits Rectangle {
+    width: 1px;
+    height: 22px;
+    background: #ffffff1c;
+}
+
+export component EditorWindow inherits Window {
+    icon: @image-url("../../../assets/glint-256.png");
+    in property <string> window-title: "Glint";
+    title: root.window-title;
+    background: Theme.bg;
+    default-font-family: "Segoe UI Variable Text";
+    min-width: 980px;
+    min-height: 360px;
+
+    in property <[ToolItem]> tools;
+    in property <[color]> palette;
+    in property <image> canvas;
+    in property <int> img-w: 1;
+    in property <int> img-h: 1;
+    in property <string> tool;
+    in property <int> color-index;
+    in property <int> size-index;
+    in property <bool> can-undo;
+    in property <bool> can-redo;
+    in property <string> status;
+    in property <string> cursor: "cross";
+    in property <bool> crop-pending;
+
+    // On-canvas text box (image pixel coordinates of its top-left, and font size in image pixels).
+    in-out property <bool> text-editing;
+    in property <float> text-x;
+    in property <float> text-y;
+    in property <float> text-size;
+    in property <color> text-color;
+    in-out property <string> text-value;
+
+    callback tool-selected(string);
+    callback color-selected(int);
+    callback size-step(int);
+    callback action(string);
+    // kind: "down", "move", "up"; x, y in image pixels of the visible area.
+    callback pointer(string, float, float, bool, bool, bool);
+    callback double-click(float, float);
+    callback key(string, bool, bool, bool) -> bool;
+    callback commit-text(string);
+
+    public function focus-canvas() {
+        keys.focus();
+    }
+    public function focus-text() {
+        ti.focus();
+        ti.select-all();
+    }
+
+    property <string> tip;
+
+    keys := FocusScope {
+        key-pressed(e) => {
+            if root.key(e.text, e.modifiers.control, e.modifiers.shift, e.modifiers.alt) {
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            // Toolbar
+            Rectangle {
+                height: 50px;
+                background: Theme.bar;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 2px;
+                    alignment: stretch;
+                    for t in root.tools: IconButton {
+                        y: 8px;
+                        glyph: t.glyph;
+                        tip: t.tip;
+                        active: root.tool == t.id;
+                        clicked => {
+                            root.tool-selected(t.id);
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        width: 10px;
+                        Separator { }
+                    }
+                    for c[i] in root.palette: Swatch {
+                        y: 8px;
+                        swatch: c;
+                        active: i == root.color-index;
+                        tip: "Colour  (" + (i + 1) + ")";
+                        clicked => {
+                            root.color-selected(i);
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        width: 10px;
+                        Separator { }
+                    }
+                    IconButton {
+                        y: 8px;
+                        glyph: "\u{E949}";
+                        tip: "Thinner  ([)";
+                        clicked => {
+                            root.size-step(-1);
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        width: 26px;
+                        Rectangle {
+                            property <length> d: 4px + root.size-index * 3px;
+                            width: self.d;
+                            height: self.d;
+                            border-radius: self.d / 2;
+                            background: root.palette[root.color-index];
+                        }
+                    }
+                    IconButton {
+                        y: 8px;
+                        glyph: "\u{E948}";
+                        tip: "Thicker  (])";
+                        clicked => {
+                            root.size-step(1);
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        horizontal-stretch: 1;
+                    }
+                    IconButton {
+                        y: 8px;
+                        glyph: "\u{E7A7}";
+                        tip: "Undo  (Ctrl+Z)";
+                        enabled: root.can-undo;
+                        clicked => {
+                            root.action("undo");
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    IconButton {
+                        y: 8px;
+                        glyph: "\u{E7A6}";
+                        tip: "Redo  (Ctrl+Y)";
+                        enabled: root.can-redo;
+                        clicked => {
+                            root.action("redo");
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        width: 10px;
+                        Separator { }
+                    }
+                    TextButton {
+                        y: 8px;
+                        glyph: "\u{E8C8}";
+                        label: "Copy";
+                        tip: "Copy to the clipboard  (Ctrl+C, Enter copies and closes)";
+                        clicked => {
+                            root.action("copy");
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                    Rectangle {
+                        width: 4px;
+                    }
+                    TextButton {
+                        y: 8px;
+                        glyph: "\u{E74E}";
+                        label: "Save";
+                        tip: "Save as PNG, JPEG or WebP  (Ctrl+S)";
+                        primary: true;
+                        clicked => {
+                            root.action("save");
+                            keys.focus();
+                        }
+                        hovered(s) => { root.tip = s; }
+                    }
+                }
+            }
+
+            // Canvas
+            area := Rectangle {
+                background: Theme.bg;
+                clip: true;
+                // Show at 100 % (one image pixel per screen pixel) when it fits, else shrink to fit.
+                property <float> fit: min(1, min((self.width - 24px) / (root.img-w * 1phx), (self.height - 24px) / (root.img-h * 1phx)));
+                img := Image {
+                    source: root.canvas;
+                    width: root.img-w * 1phx * area.fit;
+                    height: root.img-h * 1phx * area.fit;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    image-rendering: area.fit >= 1 ? pixelated : smooth;
+
+                    ta := TouchArea {
+                        property <float> ix: self.mouse-x / max(1px, self.width) * root.img-w;
+                        property <float> iy: self.mouse-y / max(1px, self.height) * root.img-h;
+                        mouse-cursor: root.cursor == "move" ? MouseCursor.move : root.cursor == "nwse" ? MouseCursor.nwse-resize : root.cursor == "nesw" ? MouseCursor.nesw-resize : root.cursor == "ew" ? MouseCursor.ew-resize : root.cursor == "ns" ? MouseCursor.ns-resize : root.cursor == "text" ? MouseCursor.text : root.cursor == "default" ? MouseCursor.default : MouseCursor.crosshair;
+                        pointer-event(e) => {
+                            if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                keys.focus();
+                                root.pointer("down", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                            } else if e.button == PointerEventButton.left && e.kind == PointerEventKind.up {
+                                root.pointer("up", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                            } else if e.kind == PointerEventKind.move {
+                                root.pointer("move", self.ix, self.iy, e.modifiers.shift, e.modifiers.control, e.modifiers.alt);
+                            }
+                        }
+                        double-clicked => {
+                            root.double-click(self.ix, self.iy);
+                        }
+                    }
+                }
+
+                // The text box sits over the canvas where the text will go.
+                Rectangle {
+                    visible: root.text-editing;
+                    x: img.x + root.text-x / root.img-w * img.width - 4px;
+                    y: img.y + root.text-y / root.img-h * img.height - 2px;
+                    width: max(80px, ti.preferred-width + 12px);
+                    height: ti.preferred-height + 4px;
+                    border-width: 1px;
+                    border-color: Theme.accent;
+                    border-radius: 3px;
+                    background: transparent;
+                    ti := TextInput {
+                        x: 4px;
+                        y: 2px;
+                        text <=> root.text-value;
+                        color: root.text-color;
+                        font-family: "Segoe UI";
+                        font-size: max(8px, root.text-size / root.img-w * img.width);
+                        single-line: true;
+                        accepted => {
+                            root.commit-text(self.text);
+                            keys.focus();
+                        }
+                    }
+                }
+            }
+
+            // Status line (no layout inside, so the zoom text cannot feed back into the window size)
+            Rectangle {
+                height: 26px;
+                background: Theme.bar;
+                Text {
+                    x: 12px;
+                    width: parent.width - 210px;
+                    height: parent.height;
+                    text: root.tip != "" ? root.tip : root.status;
+                    overflow: elide;
+                    color: Theme.dim-text;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    x: parent.width - 192px;
+                    width: 180px;
+                    height: parent.height;
+                    text: root.img-w + " \u{00D7} " + root.img-h + "   " + round(area.fit * 100) + " %";
+                    color: Theme.dim-text;
+                    font-size: 12px;
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,5 @@
+/target
+/.claude/targets
+/.e2e
+*.pdb
+/dist
