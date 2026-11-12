@@ -91,7 +91,7 @@ impl Renderer {
                 draw_selection(&mut pm, s, ed.scale);
             }
             if let Some(c) = ed.crop_pending {
-                draw_crop(&mut pm, &c, &ed.view(), ed.scale);
+                draw_crop(&mut pm, &c, &ed.view(), ed.scale, ed.crop_dragging());
             }
         }
         let v = ed.view();
@@ -193,11 +193,6 @@ impl Renderer {
                 let bx = Bx::new(*a, *b);
                 let r = ((bx.w().min(bx.h()) / 6.0) as usize).clamp(6, 40);
                 region(pm, &bx, |buf, w, h| box_blur(buf, w, h, r));
-            }
-            Kind::Pixelate { a, b } => {
-                let bx = Bx::new(*a, *b);
-                let block = ((bx.w().min(bx.h()) / 10.0) as usize).clamp(8, 48);
-                region(pm, &bx, |buf, w, h| pixelate(buf, w, h, block));
             }
         }
     }
@@ -309,7 +304,10 @@ fn draw_selection(pm: &mut Pixmap, s: &Shape, scale: f32) {
     }
 }
 
-fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32) {
+/// The crop frame, iOS style: the outside dimmed, a thin frame, thick L-shaped corners and short
+/// bars in the middle of each edge, all inside the frame so they show at the image edges too, and
+/// a rule-of-thirds grid while dragging. Dark outlines keep it visible on white images.
+fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32, grid: bool) {
     let dim = paint([0, 0, 0, 140]);
     let t = Transform::identity();
     for r in [
@@ -323,17 +321,78 @@ fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32) {
     {
         pm.fill_rect(r, &dim, t, None);
     }
-    if let Some(r) = Rect::from_ltrb(c.x0, c.y0, c.x1, c.y1) {
-        pm.stroke_path(
-            &PathBuilder::from_rect(r),
-            &paint([255, 255, 255, 255]),
-            &Stroke {
-                width: 1.5 * scale,
+    let line = |pm: &mut Pixmap, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, rgba: [u8; 4]| {
+        let mut pb = PathBuilder::new();
+        pb.move_to(x0, y0);
+        pb.line_to(x1, y1);
+        if let Some(path) = pb.finish() {
+            let st = Stroke {
+                width: w,
                 ..Default::default()
-            },
-            t,
-            None,
-        );
+            };
+            pm.stroke_path(&path, &paint(rgba), &st, t, None);
+        }
+    };
+    let s = scale;
+    if grid {
+        for k in [1.0, 2.0] {
+            let x = c.x0 + c.w() * k / 3.0;
+            let y = c.y0 + c.h() * k / 3.0;
+            line(pm, x, c.y0, x, c.y1, 2.0 * s, [0, 0, 0, 50]);
+            line(pm, c.x0, y, c.x1, y, 2.0 * s, [0, 0, 0, 50]);
+            line(pm, x, c.y0, x, c.y1, 1.0 * s, [255, 255, 255, 150]);
+            line(pm, c.x0, y, c.x1, y, 1.0 * s, [255, 255, 255, 150]);
+        }
+    }
+    // Frame: a white line on a soft dark line, half a line inside the box.
+    if let Some(r) = Rect::from_ltrb(
+        c.x0 + 0.75 * s,
+        c.y0 + 0.75 * s,
+        c.x1 - 0.75 * s,
+        c.y1 - 0.75 * s,
+    ) {
+        let path = PathBuilder::from_rect(r);
+        let mut st = Stroke {
+            width: 3.0 * s,
+            ..Default::default()
+        };
+        pm.stroke_path(&path, &paint([0, 0, 0, 110]), &st, t, None);
+        st.width = 1.5 * s;
+        pm.stroke_path(&path, &paint([255, 255, 255, 235]), &st, t, None);
+    }
+    // Corners and edge bars: filled bars, each over a slightly bigger dark one.
+    let th = 3.5 * s;
+    let len = (22.0 * s).min(c.w() / 3.0).min(c.h() / 3.0).max(th * 2.0);
+    let (cx, cy) = ((c.x0 + c.x1) / 2.0, (c.y0 + c.y1) / 2.0);
+    let mut bars: Vec<(f32, f32, f32, f32)> = vec![
+        (c.x0, c.y0, c.x0 + len, c.y0 + th),
+        (c.x0, c.y0, c.x0 + th, c.y0 + len),
+        (c.x1 - len, c.y0, c.x1, c.y0 + th),
+        (c.x1 - th, c.y0, c.x1, c.y0 + len),
+        (c.x0, c.y1 - th, c.x0 + len, c.y1),
+        (c.x0, c.y1 - len, c.x0 + th, c.y1),
+        (c.x1 - len, c.y1 - th, c.x1, c.y1),
+        (c.x1 - th, c.y1 - len, c.x1, c.y1),
+    ];
+    if c.w() > len * 4.0 {
+        bars.push((cx - len / 2.0, c.y0, cx + len / 2.0, c.y0 + th));
+        bars.push((cx - len / 2.0, c.y1 - th, cx + len / 2.0, c.y1));
+    }
+    if c.h() > len * 4.0 {
+        bars.push((c.x0, cy - len / 2.0, c.x0 + th, cy + len / 2.0));
+        bars.push((c.x1 - th, cy - len / 2.0, c.x1, cy + len / 2.0));
+    }
+    let shade = paint([0, 0, 0, 150]);
+    let white = paint([255, 255, 255, 255]);
+    for &(x0, y0, x1, y1) in &bars {
+        if let Some(r) = Rect::from_ltrb(x0 - s, y0 - s, x1 + s, y1 + s) {
+            pm.fill_rect(r, &shade, t, None);
+        }
+    }
+    for &(x0, y0, x1, y1) in &bars {
+        if let Some(r) = Rect::from_ltrb(x0, y0, x1, y1) {
+            pm.fill_rect(r, &white, t, None);
+        }
     }
 }
 
@@ -418,32 +477,6 @@ fn blur_pass(src: &[u8], dst: &mut [u8], w: usize, h: usize, r: usize, horizonta
     }
 }
 
-pub fn pixelate(buf: &mut [u8], w: usize, h: usize, block: usize) {
-    let block = block.max(1);
-    for by in (0..h).step_by(block) {
-        for bx in (0..w).step_by(block) {
-            let (ex, ey) = ((bx + block).min(w), (by + block).min(h));
-            let mut acc = [0u64; 4];
-            let n = ((ex - bx) * (ey - by)) as u64;
-            for y in by..ey {
-                for x in bx..ex {
-                    let k = (y * w + x) * 4;
-                    for c in 0..4 {
-                        acc[c] += buf[k + c] as u64;
-                    }
-                }
-            }
-            let avg = acc.map(|v| (v / n) as u8);
-            for y in by..ey {
-                for x in bx..ex {
-                    let k = (y * w + x) * 4;
-                    buf[k..k + 4].copy_from_slice(&avg);
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,14 +504,6 @@ mod tests {
     }
 
     #[test]
-    fn pixelate_makes_blocks() {
-        let img = checker(16, 16);
-        let mut buf = img.data.clone();
-        pixelate(&mut buf, 16, 16, 8);
-        assert_eq!(&buf[0..4], &buf[(7 * 16 + 7) * 4..(7 * 16 + 7) * 4 + 4]);
-    }
-
-    #[test]
     fn export_draws_arrow_and_crops() {
         let img = Image::filled(200, 100, [255, 255, 255, 255]);
         let r = Renderer::new(&img);
@@ -492,7 +517,9 @@ mod tests {
         assert!(p[0] > 200 && p[1] < 100, "arrow is red: {p:?}");
         assert_eq!(out.pixel(100, 10), [255, 255, 255, 255]);
         e.set_tool(crate::model::Tool::Crop);
-        e.pointer_down(50.0, 20.0, m);
+        e.pointer_down(0.0, 0.0, m); // top-left corner of the frame
+        e.pointer_up(50.0, 20.0, m);
+        e.pointer_down(200.0, 100.0, m); // bottom-right corner
         e.pointer_up(150.0, 80.0, m);
         e.apply_crop();
         let out = r.export(&e);

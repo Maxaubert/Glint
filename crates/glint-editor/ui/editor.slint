@@ -135,6 +135,22 @@ export component EditorWindow inherits Window {
     // (display pixels of the visible area; 0 = none).
     in property <float> brush;
     in property <bool> crop-pending;
+    // Crop settle animation (main.rs settle_crop): the cropped image starts where the frame was
+    // and zooms to its fitted place.
+    in-out property <bool> settling;
+    in-out property <bool> settle-anim;
+    property <length> settle-x;
+    property <length> settle-y;
+    property <length> settle-w;
+    property <length> settle-h;
+    public function begin-settle(fx: float, fy: float, fw: float, fh: float) {
+        root.settle-x = img.x + fx * img.width;
+        root.settle-y = img.y + fy * img.height;
+        root.settle-w = fw * img.width;
+        root.settle-h = fh * img.height;
+        root.settle-anim = false;
+        root.settling = true;
+    }
 
     // On-canvas text box (image pixel coordinates of its top-left, and font size in image pixels).
     in-out property <bool> text-editing;
@@ -347,10 +363,14 @@ export component EditorWindow inherits Window {
                 property <float> fit: min(1, min((self.width - 24px) / (root.img-w * 1phx), (self.height - 24px) / (root.img-h * 1phx)));
                 img := Image {
                     source: root.canvas;
-                    width: root.img-w * 1phx * area.fit;
-                    height: root.img-h * 1phx * area.fit;
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
+                    width: root.settling ? root.settle-w : root.img-w * 1phx * area.fit;
+                    height: root.settling ? root.settle-h : root.img-h * 1phx * area.fit;
+                    x: root.settling ? root.settle-x : (parent.width - root.img-w * 1phx * area.fit) / 2;
+                    y: root.settling ? root.settle-y : (parent.height - root.img-h * 1phx * area.fit) / 2;
+                    animate x, y, width, height {
+                        duration: root.settle-anim ? 280ms : 0ms;
+                        easing: ease-in-out;
+                    }
                     image-rendering: area.fit >= 1 ? pixelated : smooth;
 
                     ta := TouchArea {

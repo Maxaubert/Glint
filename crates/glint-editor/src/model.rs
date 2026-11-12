@@ -117,12 +117,11 @@ pub enum Tool {
     Text,
     Step,
     Blur,
-    Pixelate,
     Crop,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 11] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Select,
         Tool::Arrow,
         Tool::Rect,
@@ -132,7 +131,6 @@ impl Tool {
         Tool::Text,
         Tool::Step,
         Tool::Blur,
-        Tool::Pixelate,
         Tool::Crop,
     ];
 
@@ -147,7 +145,6 @@ impl Tool {
             Tool::Text => "text",
             Tool::Step => "step",
             Tool::Blur => "blur",
-            Tool::Pixelate => "pixelate",
             Tool::Crop => "crop",
         }
     }
@@ -167,7 +164,6 @@ impl Tool {
             Tool::Text => 'T',
             Tool::Step => 'N',
             Tool::Blur => 'B',
-            Tool::Pixelate => 'X',
             Tool::Crop => 'C',
         }
     }
@@ -188,7 +184,6 @@ impl Tool {
             Tool::Text => "Text",
             Tool::Step => "Numbered step",
             Tool::Blur => "Blur",
-            Tool::Pixelate => "Pixelate",
             Tool::Crop => "Crop",
         }
     }
@@ -205,7 +200,6 @@ impl Tool {
             Tool::Text => "\u{E8D2}",
             Tool::Step => "\u{F146}",
             Tool::Blur => "\u{E727}",
-            Tool::Pixelate => "\u{F0E2}",
             Tool::Crop => "\u{E7A8}",
         }
     }
@@ -249,10 +243,6 @@ pub enum Kind {
         n: u32,
     },
     Blur {
-        a: Pt,
-        b: Pt,
-    },
-    Pixelate {
         a: Pt,
         b: Pt,
     },
@@ -326,7 +316,7 @@ impl Shape {
                     .grow(w * 2.5)
             }
             Kind::Rect { a, b } | Kind::Ellipse { a, b } => Bx::new(*a, *b).grow(w / 2.0),
-            Kind::Blur { a, b } | Kind::Pixelate { a, b } => Bx::new(*a, *b),
+            Kind::Blur { a, b } => Bx::new(*a, *b),
             Kind::Highlight { pts } | Kind::Pen { pts } => {
                 let k = if matches!(self.kind, Kind::Highlight { .. }) {
                     w * 3.0
@@ -382,7 +372,7 @@ impl Shape {
             }
             Kind::Highlight { pts } => near_polyline(p, pts, w * 1.5 + tol),
             Kind::Pen { pts } => near_polyline(p, pts, w / 2.0 + tol),
-            Kind::Blur { .. } | Kind::Pixelate { .. } | Kind::Text { .. } | Kind::Step { .. } => {
+            Kind::Blur { .. } | Kind::Text { .. } | Kind::Step { .. } => {
                 self.bounds().contains(p, tol)
             }
         }
@@ -398,10 +388,7 @@ impl Shape {
                     mv(m);
                 }
             }
-            Kind::Rect { a, b }
-            | Kind::Ellipse { a, b }
-            | Kind::Blur { a, b }
-            | Kind::Pixelate { a, b } => {
+            Kind::Rect { a, b } | Kind::Ellipse { a, b } | Kind::Blur { a, b } => {
                 mv(a);
                 mv(b);
             }
@@ -414,10 +401,9 @@ impl Shape {
     pub fn handles(&self) -> Vec<Pt> {
         match &self.kind {
             Kind::Arrow { a, b, bend } => vec![*a, *b, bend.unwrap_or(a.mid(*b))],
-            Kind::Rect { a, b }
-            | Kind::Ellipse { a, b }
-            | Kind::Blur { a, b }
-            | Kind::Pixelate { a, b } => Bx::new(*a, *b).handles().to_vec(),
+            Kind::Rect { a, b } | Kind::Ellipse { a, b } | Kind::Blur { a, b } => {
+                Bx::new(*a, *b).handles().to_vec()
+            }
             _ => vec![],
         }
     }
@@ -433,10 +419,7 @@ impl Shape {
                     *bend = if straight { None } else { Some(p) };
                 }
             },
-            Kind::Rect { a, b }
-            | Kind::Ellipse { a, b }
-            | Kind::Blur { a, b }
-            | Kind::Pixelate { a, b } => {
+            Kind::Rect { a, b } | Kind::Ellipse { a, b } | Kind::Blur { a, b } => {
                 let bx = Bx::new(*a, *b).with_handle(i, p);
                 *a = pt(bx.x0, bx.y0);
                 *b = pt(bx.x1, bx.y1);
@@ -449,10 +432,7 @@ impl Shape {
     pub fn is_degenerate(&self) -> bool {
         match &self.kind {
             Kind::Arrow { a, b, .. } => a.dist(*b) < 4.0,
-            Kind::Rect { a, b }
-            | Kind::Ellipse { a, b }
-            | Kind::Blur { a, b }
-            | Kind::Pixelate { a, b } => {
+            Kind::Rect { a, b } | Kind::Ellipse { a, b } | Kind::Blur { a, b } => {
                 let bx = Bx::new(*a, *b);
                 bx.w() < 3.0 || bx.h() < 3.0
             }
@@ -463,7 +443,7 @@ impl Shape {
     }
 
     pub fn has_color(&self) -> bool {
-        !matches!(self.kind, Kind::Blur { .. } | Kind::Pixelate { .. })
+        !matches!(self.kind, Kind::Blur { .. })
     }
 }
 

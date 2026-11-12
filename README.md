@@ -33,7 +33,7 @@
 | Drag a box, then fine-tune with handles or arrow keys | **Click** to open the editor | Ellipse for circling things, rectangle |
 | **Right-click**: the whole screen under the mouse | **Drag** it into Discord, Slack, Explorer | Highlighter that keeps text readable |
 | **Middle-click**: the same area as last time | Save with one click | Text, numbered steps, pen |
-| Works with the Wind magnifier: snip while zoomed, zoom out in the overlay | Stacks when you snip quickly | Blur and pixelate (permanent) |
+| Works with the Wind magnifier: snip while zoomed, zoom out in the overlay | Stacks when you snip quickly | Blur (permanent) |
 | Works across monitors with different scaling | Never steals focus | Crop, undo, copy, save PNG, JPEG or WebP |
 
 <img src="assets/overlay.png" width="600" alt="The snip overlay: dimmed screen, selected area with handles and its size">
@@ -53,7 +53,7 @@ The installer is not signed yet, so SmartScreen may warn on first run.
 | Overlay | Right-click / middle-click | Full screen / last area |
 | Overlay | Arrows, `Shift`+arrows, `Ctrl` for 10 px | Move / resize the box |
 | Overlay | `F`, `Shift+F`, `Esc` | Full screen, all screens, cancel |
-| Editor | `V A R O H P T N B X C` | Select, arrow, rectangle, ellipse, highlight, pen, text, step, blur, pixelate, crop |
+| Editor | `V A R O H P T N B C` | Select, arrow, rectangle, ellipse, highlight, pen, text, step, blur, crop |
 | Editor | `1` to `6`, `[` and `]` | Colour, thinner and thicker |
 | Editor | `Ctrl+Z`, `Ctrl+Y`, `Delete` | Undo, redo, delete the selected shape |
 | Editor | `Ctrl+C`, `Ctrl+S`, `Enter` | Copy, save, copy and close |

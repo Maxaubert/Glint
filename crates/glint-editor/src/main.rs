@@ -15,6 +15,7 @@ use glint_editor::model::{text_size, Tool};
 use glint_editor::render::Renderer;
 use serde::{Deserialize, Serialize};
 use slint::platform::Key;
+use slint::TimerMode;
 use slint::{
     CloseRequestResponse, Color, ComponentHandle, ModelRc, SharedPixelBuffer, SharedString,
     VecModel,
@@ -22,6 +23,7 @@ use slint::{
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::time::Duration;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::HWND;
 use windows::Win32::UI::Input::KeyboardAndMouse::GetActiveWindow;
@@ -252,8 +254,7 @@ impl App {
             Tool::Text => "Click to type. Enter finishes. Double-click text to edit it.",
             Tool::Step => "Click to add numbered steps. They renumber when you delete one.",
             Tool::Blur => "Drag over anything private to blur it. The blur is permanent in the saved image.",
-            Tool::Pixelate => "Drag over anything private to pixelate it. Permanent in the saved image.",
-            Tool::Crop => "Drag the area to keep. Enter applies, Esc cancels.",
+            Tool::Crop => "Drag a corner or edge. It crops a second after you let go. Enter crops now, Esc resets, Ctrl+Z undoes.",
         }
         .into()
     }
@@ -551,12 +552,15 @@ fn main() {
     }
     {
         let with = with.clone();
+        let with_settle = with.clone();
         ui.on_pointer(move |kind, x, y, shift, ctrl, alt| {
             let m = Mods { shift, ctrl, alt };
             let kind = kind.to_string();
             with(&|a, ui| {
                 match kind.as_str() {
                     "down" => {
+                        // Grabbing the crop frame again restarts the pause before it crops.
+                        SETTLE.with(|t| t.stop());
                         a.status.clear();
                         // Stroke widths follow the window's real scale (known once it is on screen).
                         a.ed.scale = ui.window().scale_factor();
@@ -569,6 +573,14 @@ fn main() {
                     }
                     "up" => {
                         a.ed.pointer_up(x, y, m);
+                        if a.ed.crop_waiting() {
+                            let with = with_settle.clone();
+                            SETTLE.with(|t| {
+                                t.start(TimerMode::SingleShot, CROP_PAUSE, move || {
+                                    with(&|a, ui| settle_crop(a, ui));
+                                })
+                            });
+                        }
                         true
                     }
                     _ => {
@@ -654,6 +666,46 @@ fn main() {
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<App>>>> = const { RefCell::new(None) };
+    /// Crops a moment after the crop frame is let go (iOS style).
+    static SETTLE: slint::Timer = slint::Timer::default();
+}
+
+/// How long a changed crop frame waits, so the handles can be grabbed again first.
+const CROP_PAUSE: Duration = Duration::from_millis(1000);
+/// The zoom from the frame to the full cropped image.
+const CROP_ANIM: Duration = Duration::from_millis(280);
+
+/// Crops to the frame and zooms the kept part up to fill the canvas. Undo brings it back.
+fn settle_crop(a: &mut App, ui: &EditorWindow) -> bool {
+    let (Some(c), v) = (a.ed.crop_pending, a.ed.view()) else {
+        return false;
+    };
+    if !a.ed.crop_waiting() {
+        return false;
+    }
+    // Where the frame is now, as parts of the shown image: the cropped image starts there.
+    ui.invoke_begin_settle(
+        (c.x0 - v.x0) / v.w(),
+        (c.y0 - v.y0) / v.h(),
+        c.w() / v.w(),
+        c.h() / v.h(),
+    );
+    let done = a.ed.apply_crop();
+    let weak = ui.as_weak();
+    // Next frame: animate from the frame to the normal fitted place.
+    slint::Timer::single_shot(Duration::from_millis(16), move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_settle_anim(true);
+            ui.set_settling(false);
+            let weak = ui.as_weak();
+            slint::Timer::single_shot(CROP_ANIM + Duration::from_millis(40), move || {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_settle_anim(false);
+                }
+            });
+        }
+    });
+    done
 }
 
 /// Toolbar and shortcut actions. Returns true when the canvas must be redrawn.
@@ -762,8 +814,9 @@ fn on_key(
         return (false, false); // the text box handles typing
     }
     if is(text, Key::Return) {
-        if a.ed.apply_crop() {
-            return (true, true);
+        if a.ed.crop_waiting() {
+            SETTLE.with(|t| t.stop());
+            return (true, settle_crop(a, ui));
         }
         return (true, run_action(a, ui, "copy-close"));
     }

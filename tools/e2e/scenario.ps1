@@ -239,6 +239,51 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 
+  # 9. Crop, iOS style: the frame starts around the image; drag the bottom-right corner in, let go,
+  #    and it crops by itself after a pause (no Enter).
+  Remove-Item "$work\out\editor-export.png", "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+  $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $png, '--name', 'crop.png') -PassThru
+  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'crop.png - Glint') -ne [IntPtr]::Zero } 10000
+  Check 'crop: editor opens' $okWin
+  if ($okWin) {
+    Start-Sleep -Milliseconds 800
+    $hw = [W]::FindWindow([NullString]::Value, 'crop.png - Glint')
+    Key 0x43                       # C = crop
+    [W]::PostMessage($hw, 0x0200, [IntPtr]0, (ImgPt 790 490)) | Out-Null
+    [W]::PostMessage($hw, 0x0201, [IntPtr]1, (ImgPt 798 498)) | Out-Null
+    foreach ($i in 1..8) { [W]::PostMessage($hw, 0x0200, [IntPtr]1, (ImgPt (798 - 25 * $i) (498 - 12.5 * $i))) | Out-Null; Start-Sleep -Milliseconds 15 }
+    Start-Sleep -Milliseconds 100
+    Key 0x7B                       # F12 snapshot while dragging: frame, handles, thirds grid
+    [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt 598 398)) | Out-Null
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-crop.png"
+      Remove-Item "$work\out\editor-window.png"
+    }
+    Start-Sleep -Milliseconds 400
+    Key 0x7B
+    $early = $false
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      $b = New-Object System.Drawing.Bitmap "$work\out\editor-window.png"; $early = $b.Width; $b.Dispose()
+      Remove-Item "$work\out\editor-window.png"
+    }
+    Start-Sleep -Milliseconds 1200  # the pause (1 s) and the zoom
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-cropped.png"
+    }
+    Key 0x0D                       # Enter = copy (test hook: export file) and close
+    Check 'crop: export written' (Wait-Until { Test-Path "$work\out\editor-export.png" })
+    if (Test-Path "$work\out\editor-export.png") {
+      $out = New-Object System.Drawing.Bitmap "$work\out\editor-export.png"
+      Check 'crop: applied after the pause, without Enter' ("$($out.Width)x$($out.Height)" -eq '598x398') "$($out.Width)x$($out.Height)"
+      $out.Dispose()
+    }
+  }
+  if (-not $ed.HasExited) { $ed.Kill() }
+
   Glint @('quit')
   Check 'quit stops the daemon' ($daemon.WaitForExit(5000))
 }
