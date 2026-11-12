@@ -1,0 +1,8 @@
+[package]
+name = "glint-editor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+glint-core.workspace = true
