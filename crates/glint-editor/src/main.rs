@@ -160,6 +160,8 @@ struct App {
     temp_file: Option<PathBuf>,
     state: State,
     status: String,
+    /// Opened from the tray for settings only: no picture, closing settings closes the window.
+    settings_only: bool,
 }
 
 impl App {
@@ -180,6 +182,7 @@ impl App {
             temp_file: None,
             state,
             status: String::new(),
+            settings_only: false,
         }
     }
 
@@ -218,15 +221,32 @@ impl App {
             .filter(|d| d.is_dir())
             .unwrap_or_else(|| self.save_dir.clone());
         let _ = std::fs::create_dir_all(&dir);
-        let Some(path) = rfd::FileDialog::new()
+        // Start with the format chosen in Settings; the others stay available.
+        let fmt = glint_core::config::Config::load(&glint_core::paths::config_file())
+            .map(|c| c.save_format)
+            .unwrap_or_default();
+        let mut filters = vec![
+            ("png", "PNG image", vec!["png"]),
+            ("jpg", "JPEG image", vec!["jpg", "jpeg"]),
+            ("webp", "WebP image (lossless)", vec!["webp"]),
+        ];
+        if let Some(i) = filters.iter().position(|f| f.0 == fmt) {
+            let f = filters.remove(i);
+            filters.insert(0, f);
+        }
+        let ext = filters[0].0;
+        let stem = Path::new(&self.name)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Glint".into());
+        let mut dialog = rfd::FileDialog::new()
             .set_title("Save the image")
             .set_directory(&dir)
-            .set_file_name(&self.name)
-            .add_filter("PNG image", &["png"])
-            .add_filter("JPEG image", &["jpg", "jpeg"])
-            .add_filter("WebP image (lossless)", &["webp"])
-            .save_file()
-        else {
+            .set_file_name(format!("{stem}.{ext}"));
+        for (_, label, exts) in &filters {
+            dialog = dialog.add_filter(*label, exts);
+        }
+        let Some(path) = dialog.save_file() else {
             return;
         };
         let img = self.r.export(&self.ed);
@@ -332,7 +352,11 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
     // The image size sits next to the name (owner, 2026-11-12): "shot.png (2524 x 1259) - Glint".
     let (w, h) = app.ed.view_size();
-    ui.set_window_title(format!("{} ({w} \u{00D7} {h}){dot} - Glint", app.name).into());
+    if app.settings_only {
+        ui.set_window_title("Glint settings".into());
+    } else {
+        ui.set_window_title(format!("{} ({w} \u{00D7} {h}){dot} - Glint", app.name).into());
+    }
     match &app.ed.text_edit {
         Some(t) => {
             let v = app.ed.view();
@@ -382,14 +406,25 @@ fn cursor_monitor() -> (glint_core::Rect, f32) {
     }
 }
 
-/// Whether Windows apps use dark mode (Settings > Personalization > Colors). `GLINT_THEME=light` or
-/// `dark` overrides it (tests).
-pub(crate) fn system_dark() -> bool {
+/// Dark or light: the Theme setting ("system", "light", "dark"), "system" following Windows.
+/// `GLINT_THEME=light` or `dark` overrides both (tests).
+pub(crate) fn dark_now() -> bool {
     match std::env::var("GLINT_THEME").as_deref() {
         Ok("light") => return false,
         Ok("dark") => return true,
         _ => {}
     }
+    let cfg =
+        glint_core::config::Config::load(&glint_core::paths::config_file()).unwrap_or_default();
+    match cfg.theme.as_str() {
+        "light" => false,
+        "dark" => true,
+        _ => system_dark(),
+    }
+}
+
+/// Whether Windows apps use dark mode (Settings > Personalization > Colors).
+fn system_dark() -> bool {
     use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
     let mut value: u32 = 0;
     let mut size = std::mem::size_of::<u32>() as u32;
@@ -415,11 +450,8 @@ fn main() {
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
-    if std::env::args().any(|a| a == "--settings") {
-        settings::run();
-        return;
-    }
     let args = parse_args();
+    let settings_only = std::env::args().any(|a| a == "--settings");
     let mut file = args.file.clone();
     if args.open {
         file = pick_file();
@@ -428,6 +460,12 @@ fn main() {
         }
     }
     let image = match &file {
+        // Settings from the tray: no picture; the settings overlay covers the window.
+        _ if settings_only => Ok(Image {
+            width: 1,
+            height: 1,
+            data: vec![0; 4],
+        }),
         Some(p) => load_image(p),
         None => match clipboard::get_image(None) {
             Ok(Some(img)) => Ok(img),
@@ -475,14 +513,24 @@ fn main() {
     if args.temp {
         app.temp_file = file.clone();
     }
+    app.settings_only = settings_only;
     let app = Rc::new(RefCell::new(app));
 
     // Window size: the image at 100 % plus the toolbars, capped to 92 % of the work area.
     // Room for the floating pills (64) and the dock (84) around the picture, plus a margin.
     let chrome = ((64.0 + 84.0 + 24.0) * scale) as i32;
     let pad = (24.0 * scale) as i32;
-    let w = (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100);
-    let h = (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100);
+    let (w, h) = if settings_only {
+        (
+            ((960.0 * scale) as i32).min(work.w * 92 / 100),
+            ((660.0 * scale) as i32).min(work.h * 92 / 100),
+        )
+    } else {
+        (
+            (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100),
+            (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100),
+        )
+    };
     ui.window()
         .set_size(slint::PhysicalSize::new(w as u32, h as u32));
     ui.window().set_position(slint::PhysicalPosition::new(
@@ -662,14 +710,18 @@ fn main() {
 
     refresh(&ui, &app.borrow());
     ui.invoke_focus_canvas();
+    settings::attach(&ui, settings_only);
+    if settings_only {
+        settings::open(&ui);
+    }
     // Light or dark, as Windows is set; checked again every 2 s so a switch applies live.
-    ui.global::<Theme>().set_dark(system_dark());
+    ui.global::<Theme>().set_dark(dark_now());
     let theme_timer = slint::Timer::default();
     {
         let weak = ui.as_weak();
         theme_timer.start(TimerMode::Repeated, Duration::from_secs(2), move || {
             if let Some(ui) = weak.upgrade() {
-                let dark = system_dark();
+                let dark = dark_now();
                 if ui.global::<Theme>().get_dark() != dark {
                     ui.global::<Theme>().set_dark(dark);
                 }
@@ -744,10 +796,7 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         }
         "save" => a.save(),
         "settings" => {
-            // The settings window is this program with --settings (it focuses an open one).
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = std::process::Command::new(exe).arg("--settings").spawn();
-            }
+            settings::open(ui);
             return false;
         }
         "close" => {
@@ -816,6 +865,17 @@ fn on_key(
     alt: bool,
 ) -> (bool, bool) {
     let _ = alt;
+    // Settings overlay open: Esc closes it, editor shortcuts are off.
+    if ui.get_settings_open() {
+        if is(text, Key::Escape) {
+            settings::close(ui);
+        } else if is(text, Key::F12) {
+            snapshot(ui);
+        } else if is(text, Key::F9) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+            settings::test_flip_sound(ui);
+        }
+        return (true, false);
+    }
     if is(text, Key::Escape) {
         if a.ed.text_edit.is_some() {
             a.ed.cancel_text();
@@ -838,6 +898,11 @@ fn on_key(
     // Windows ends a posted hover at once).
     if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
         ui.invoke_show_tip("Arrow".into(), "A".into(), 200.0, 200.0);
+        return (true, false);
+    }
+    // Tests only: F8 opens the settings overlay (the gear).
+    if is(text, Key::F8) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        settings::open(ui);
         return (true, false);
     }
     // Tests only: F10 plays the Copy button's checkmark (without touching the clipboard).

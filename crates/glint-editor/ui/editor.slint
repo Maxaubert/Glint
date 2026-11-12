@@ -4,8 +4,8 @@
 // All drawing happens in Rust (tiny-skia); this file only lays out and forwards input.
 
 import { Theme } from "theme.slint";
-import { SettingsWindow } from "settings.slint";
-export { Theme, SettingsWindow }
+import { SettingsPanel, SettingsState } from "settings.slint";
+export { Theme, SettingsState }
 
 export struct ToolItem {
     id: string,
@@ -199,6 +199,9 @@ export component EditorWindow inherits Window {
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <string> status;
+    // Settings overlay (settings.rs). settings-only: opened from the tray, no picture behind it.
+    in-out property <bool> settings-open;
+    in property <bool> settings-only;
     property <bool> status-visible;
     // The Copy pill shows a checkmark for a moment after a copy.
     property <bool> copied;
@@ -641,6 +644,13 @@ export component EditorWindow inherits Window {
                     }
                 }
             }
+        }
+
+        // Settings, over the whole editor.
+        if root.settings-open: SettingsPanel {
+            solid: root.settings-only;
+            width: parent.width;
+            height: parent.height;
         }
 
         // The tooltip, drawn over everything: below the top pills, above the dock.

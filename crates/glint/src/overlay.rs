@@ -59,6 +59,9 @@ struct Overlay {
     moved: bool,
     cur: (i32, i32),
     capture_on_release: bool,
+    /// The snip hotkey as key names ("Win", "Shift", "S"): pressing it again cancels, so the hint
+    /// shows it next to Esc, drawn from the user's own setting.
+    close_keys: Vec<String>,
     done: Option<Outcome>,
 }
 
@@ -106,6 +109,7 @@ pub fn show(
     frame: Frame,
     last: Option<Rect>,
     capture_on_release: bool,
+    close_hotkey: &str,
     done: impl FnOnce(Outcome) + 'static,
 ) -> Result<(), String> {
     if is_open() {
@@ -160,6 +164,11 @@ pub fn show(
             moved: false,
             cur: (p.x, p.y),
             capture_on_release,
+            close_keys: close_hotkey
+                .split('+')
+                .map(|k| k.trim().to_string())
+                .filter(|k| !k.is_empty())
+                .collect(),
             done: None,
         })
     });
@@ -447,35 +456,54 @@ impl Overlay {
     fn paint_hint(&self, dpi: u32) {
         use gfx::MouseButton::{Left, Middle, Right};
         let mon = local_rect(self.monitor().rect, &self.vb);
-        // What each input does: an icon (a mouse with the button lit, or a key cap) and a label.
-        let mut items: Vec<(Hint, &str)> = Vec::new();
+        // What each input does: icons (a mouse with the button lit, or key caps), then a label.
+        // Several icons in one group mean "any of these".
+        let keys = |names: &[&str]| Hint::Keys(names.iter().map(|s| s.to_string()).collect());
+        let mut items: Vec<(Vec<Hint>, &str)> = Vec::new();
         if self.sel.is_some() && !self.capture_on_release {
-            items.push((Hint::Key("Enter"), "Snip"));
-            items.push((Hint::Mouse(Left), "Adjust with the handles"));
+            items.push((vec![keys(&["Enter"])], "Snip"));
+            items.push((vec![Hint::Mouse(Left)], "Adjust with the handles"));
         } else if self.sel.is_some() {
-            items.push((Hint::Mouse(Left), "Let go to snip"));
+            items.push((vec![Hint::Mouse(Left)], "Let go to snip"));
         } else {
-            items.push((Hint::Mouse(Left), "Drag to snip"));
-            items.push((Hint::Mouse(Right), "Full screen"));
+            items.push((vec![Hint::Mouse(Left)], "Drag to snip"));
+            items.push((vec![Hint::Mouse(Right)], "Full screen"));
             if self.last.is_some() {
-                items.push((Hint::Mouse(Middle), "Last area"));
+                items.push((vec![Hint::Mouse(Middle)], "Last area"));
             }
         }
-        items.push((Hint::Key("Esc"), "Cancel"));
+        let mut cancel = vec![keys(&["Esc"])];
+        if !self.close_keys.is_empty() {
+            cancel.push(Hint::Keys(self.close_keys.clone()));
+        }
+        items.push((cancel, "Cancel"));
 
         let dc = self.back.dc;
         let font = Font::ui(px(12, dpi));
+        let small = Font::ui(px(11, dpi));
         let key_font = Font::ui_bold(px(10, dpi));
         let (mw, mh) = gfx::mouse_icon_size(dpi);
-        let key_h = px(18, dpi);
+        let key_h = px(19, dpi);
+        let cap_gap = px(3, dpi);
+        let or_w = gfx::text_size(dc, &small, "or").0 + px(10, dpi);
+        let cap_w = |k: &str| {
+            if k == "Win" {
+                key_h + px(4, dpi)
+            } else {
+                (gfx::text_size(dc, &key_font, k).0 + px(12, dpi)).max(key_h)
+            }
+        };
         let icon_w = |h: &Hint| match h {
             Hint::Mouse(_) => mw,
-            Hint::Key(k) => gfx::text_size(dc, &key_font, k).0 + px(12, dpi),
+            Hint::Keys(ks) => {
+                ks.iter().map(|k| cap_w(k)).sum::<i32>() + cap_gap * (ks.len() as i32 - 1)
+            }
         };
+        let group_w = |g: &[Hint]| g.iter().map(&icon_w).sum::<i32>() + or_w * (g.len() as i32 - 1);
         let (pad, icon_gap, group_gap) = (px(12, dpi), px(7, dpi), px(18, dpi));
         let widths: Vec<(i32, i32)> = items
             .iter()
-            .map(|(h, label)| (icon_w(h), gfx::text_size(dc, &font, label).0))
+            .map(|(g, label)| (group_w(g), gfx::text_size(dc, &font, label).0))
             .collect();
         let w = 2 * pad
             + widths.iter().map(|(a, b)| a + icon_gap + b).sum::<i32>()
@@ -494,24 +522,36 @@ impl Overlay {
         );
         let mut at = x + pad;
         let mid = y + h / 2;
-        for ((hint, label), (iw, tw)) in items.iter().zip(&widths) {
-            match hint {
-                Hint::Mouse(b) => gfx::mouse_icon(
-                    &self.back,
-                    at,
-                    mid - mh / 2,
-                    dpi,
-                    *b,
-                    rgb(225, 225, 232),
-                    ACCENT,
-                ),
-                Hint::Key(k) => {
-                    let r = Rect::new(at, mid - key_h / 2, *iw, key_h);
-                    gfx::round_rect(dc, &r, px(4, dpi), rgb(44, 44, 52), Some(rgb(92, 92, 104)));
-                    gfx::text(dc, &key_font, k, &r, rgb(225, 225, 232));
+        for ((group, label), (_, tw)) in items.iter().zip(&widths) {
+            for (n, hint) in group.iter().enumerate() {
+                if n > 0 {
+                    let r = Rect::new(at, y, or_w, h);
+                    gfx::text(dc, &small, "or", &r, rgb(150, 150, 160));
+                    at += or_w;
                 }
+                match hint {
+                    Hint::Mouse(b) => gfx::mouse_icon(
+                        &self.back,
+                        at,
+                        mid - mh / 2,
+                        dpi,
+                        *b,
+                        rgb(225, 225, 232),
+                        ACCENT,
+                    ),
+                    Hint::Keys(ks) => {
+                        let mut kx = at;
+                        for k in ks {
+                            let cw = cap_w(k);
+                            let r = Rect::new(kx, mid - key_h / 2, cw, key_h);
+                            gfx::key_cap(dc, &key_font, k, &r, dpi);
+                            kx += cw + cap_gap;
+                        }
+                    }
+                }
+                at += icon_w(hint);
             }
-            at += iw + icon_gap;
+            at += icon_gap;
             let r = Rect::new(at, y, *tw, h);
             gfx::text(dc, &font, label, &r, rgb(240, 240, 245));
             at += tw + group_gap;
@@ -519,10 +559,11 @@ impl Overlay {
     }
 }
 
-/// One input in the overlay hint.
+/// One icon in the overlay hint.
 enum Hint {
     Mouse(gfx::MouseButton),
-    Key(&'static str),
+    /// Key caps for a key or a combination ("Win", "Shift", "S"); Win is drawn as its logo.
+    Keys(Vec<String>),
 }
 
 fn local_rect(r: Rect, vb: &Rect) -> Rect {

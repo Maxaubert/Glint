@@ -387,3 +387,21 @@ pub fn mouse_icon(
         }
     }
 }
+
+/// A key cap: a rounded key with its name, or the Windows logo for "Win".
+pub fn key_cap(dc: HDC, font: &Font, name: &str, r: &Rect, dpi: u32) {
+    round_rect(dc, r, px(4, dpi), rgb(44, 44, 52), Some(rgb(92, 92, 104)));
+    if name == "Win" {
+        // Four panes, like the key's logo.
+        let s = (r.h * 5 / 19).max(3);
+        let g = (s / 5).max(1);
+        let total = 2 * s + g;
+        let (x0, y0) = (r.x + (r.w - total) / 2, r.y + (r.h - total) / 2);
+        let c = rgb(225, 225, 232);
+        for (dx, dy) in [(0, 0), (s + g, 0), (0, s + g), (s + g, s + g)] {
+            fill(dc, &Rect::new(x0 + dx, y0 + dy, s, s), c);
+        }
+    } else {
+        text(dc, font, name, r, rgb(225, 225, 232));
+    }
+}

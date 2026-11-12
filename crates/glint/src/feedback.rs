@@ -1,5 +1,5 @@
 //! Capture feedback: a short shutter sound and a frame that flashes around the snipped area.
-//! Both are optional (`capture_sound`, `capture_frame` in config.toml).
+//! The sound is optional (`capture_sound` in config.toml); the frame always flashes.
 
 use crate::gfx::{self, px, rgb};
 use glint_core::Rect;

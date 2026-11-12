@@ -1,8 +1,37 @@
-// The Glint settings window (docs/mockups/2026-11-12-settings-layouts.html, #3): a section list on
-// the left, the section's settings on the right. Every change is saved at once (main.rs); the
-// tray app reloads config.toml within a few seconds. Light and dark follow Windows (Theme.dark).
+// Glint settings, shown as an overlay inside the editor window (owner, 2026-11-12): a dimmed
+// backdrop and a card with a section list on the left (mockup #3 in
+// docs/mockups/2026-11-12-settings-layouts.html). The options were chosen with the owner one by
+// one; values and callbacks live in the SettingsState global, filled and saved by settings.rs.
 
 import { Theme } from "theme.slint";
+
+export global SettingsState {
+    in-out property <int> section: 0;
+    in-out property <bool> hdr-capture;
+    in-out property <bool> capture-sound;
+    in-out property <int> preview-seconds: 6;
+    in-out property <[string]> hk-region;
+    in-out property <[string]> hk-fullscreen;
+    in-out property <[string]> hk-repeat;
+    in-out property <string> save-dir;
+    // "png", "jpg" or "webp".
+    in-out property <string> save-format: "png";
+    // "system", "light" or "dark".
+    in-out property <string> theme: "system";
+    in-out property <bool> start-with-windows;
+    in-out property <string> version;
+    in-out property <string> note;
+
+    // A toggle, stepper or choice changed: settings.rs reads the state and saves config.toml.
+    callback changed();
+    callback start-with-windows-changed(bool);
+    callback hotkey-changed(string, string);
+    callback record-hotkey(string, bool, bool, bool, bool) -> string;
+    callback browse-folder();
+    callback open-folder();
+    callback open-website();
+    callback close();
+}
 
 component Toggle inherits Rectangle {
     in-out property <bool> on;
@@ -28,6 +57,43 @@ component Toggle inherits Rectangle {
         clicked => {
             root.on = !root.on;
             root.toggled(root.on);
+        }
+    }
+}
+
+// A segmented choice: the options are labels, `value` is the chosen one's key.
+component Choice inherits Rectangle {
+    in property <[{key: string, label: string}]> options;
+    in-out property <string> value;
+    callback picked(string);
+    height: 32px;
+    width: row.preferred-width + 6px;
+    border-radius: 8px;
+    background: Theme.dark ? #ffffff0d : #0000000a;
+    border-width: 1px;
+    border-color: Theme.panel-edge;
+    row := HorizontalLayout {
+        x: 3px;
+        y: 3px;
+        height: 26px;
+        spacing: 2px;
+        for o in root.options: Rectangle {
+            width: t.preferred-width + 22px;
+            border-radius: 6px;
+            background: root.value == o.key ? Theme.accent : ta.has-hover ? Theme.hover : transparent;
+            t := Text {
+                text: o.label;
+                font-size: 12.5px;
+                font-weight: 600;
+                color: root.value == o.key ? #ffffff : Theme.text;
+            }
+            ta := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.value = o.key;
+                    root.picked(o.key);
+                }
+            }
         }
     }
 }
@@ -104,8 +170,6 @@ component SmallButton inherits Rectangle {
 // Shows a hotkey as key caps; click it, then press the new keys. Esc cancels, Backspace clears.
 component HotkeyField inherits Rectangle {
     in property <[string]> keys;
-    // Rust turns the pressed keys into a hotkey; "" means "keep waiting" (only a modifier so far).
-    callback record(string, bool, bool, bool, bool) -> string;
     callback changed(string);
     property <bool> recording: fs.has-focus;
     height: 34px;
@@ -133,16 +197,26 @@ component HotkeyField inherits Rectangle {
         for k in (root.recording ? [] : root.keys): Rectangle {
             y: (34px - 24px) / 2;
             height: 24px;
-            width: kt.preferred-width + 14px;
+            width: k == "Win" ? 28px : max(24px, kt.preferred-width + 14px);
             border-radius: 5px;
             background: Theme.pill;
             border-width: 1px;
             border-color: Theme.panel-edge;
             kt := Text {
+                visible: k != "Win";
                 text: k;
                 font-size: 12px;
                 font-weight: 600;
                 color: Theme.text;
+            }
+            // The Win key as its logo: four panes.
+            if k == "Win": Rectangle {
+                width: 13px;
+                height: 13px;
+                Rectangle { x: 0; y: 0; width: 6px; height: 6px; background: Theme.text; }
+                Rectangle { x: 7px; y: 0; width: 6px; height: 6px; background: Theme.text; }
+                Rectangle { x: 0; y: 7px; width: 6px; height: 6px; background: Theme.text; }
+                Rectangle { x: 7px; y: 7px; width: 6px; height: 6px; background: Theme.text; }
             }
         }
     }
@@ -155,7 +229,7 @@ component HotkeyField inherits Rectangle {
             if !root.recording {
                 return reject;
             }
-            let r = root.record(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, e.modifiers.meta);
+            let r = SettingsState.record-hotkey(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, e.modifiers.meta);
             if r == "cancel" {
                 fs.clear-focus();
             } else if r != "" {
@@ -170,9 +244,9 @@ component HotkeyField inherits Rectangle {
 component NavItem inherits Rectangle {
     in property <image> icon;
     in property <string> label;
-    in property <bool> active;
-    callback clicked;
-    height: 38px;
+    in property <int> index;
+    property <bool> active: SettingsState.section == root.index;
+    height: 36px;
     border-radius: 7px;
     background: root.active ? Theme.hover : ta.has-hover ? Theme.hover.with-alpha(0.05) : transparent;
     if root.active: Rectangle {
@@ -189,7 +263,7 @@ component NavItem inherits Rectangle {
             source: root.icon;
             width: 17px;
             height: 17px;
-            y: (38px - 17px) / 2;
+            y: (36px - 17px) / 2;
             colorize: Theme.dim-text;
         }
         Text {
@@ -202,71 +276,58 @@ component NavItem inherits Rectangle {
     }
     ta := TouchArea {
         mouse-cursor: pointer;
-        clicked => { root.clicked(); }
+        clicked => { SettingsState.section = root.index; }
     }
 }
 
-export component SettingsWindow inherits Window {
-    title: "Glint settings";
-    icon: @image-url("../../../assets/glint-256.png");
-    background: Theme.bg;
-    default-font-family: "Segoe UI Variable Text";
-    preferred-width: 860px;
-    preferred-height: 560px;
-    min-width: 720px;
-    min-height: 460px;
-
-    in-out property <int> section: 0;
-    in-out property <bool> capture-on-release;
-    in-out property <bool> print-screen;
-    in-out property <bool> hdr-capture;
-    in-out property <bool> capture-sound;
-    in-out property <bool> capture-frame;
-    in-out property <int> preview-seconds: 6;
-    in-out property <string> save-dir;
-    in-out property <[string]> hk-region;
-    in-out property <[string]> hk-fullscreen;
-    in-out property <[string]> hk-repeat;
-    in-out property <bool> start-with-windows;
-    in property <string> version;
-    in property <string> note;
-
-    // Any toggle or stepper changed: main.rs reads the properties and saves config.toml.
-    callback changed();
-    callback start-with-windows-changed(bool);
-    callback print-screen-changed(bool);
-    callback hotkey-changed(string, string);
-    callback record-hotkey(string, bool, bool, bool, bool) -> string;
-    callback browse-folder();
-    callback open-folder();
-    callback open-file();
-    callback open-website();
-    callback key(string) -> bool;
-
-    forward-focus: keys;
-    keys := FocusScope {
-        key-pressed(e) => {
-            if root.key(e.text) {
-                return accept;
-            }
-            reject
-        }
+// The overlay: fills its parent (the editor window).
+export component SettingsPanel inherits Rectangle {
+    // From the tray with no picture: a plain backdrop instead of the dimmed editor.
+    in property <bool> solid;
+    background: root.solid ? Theme.bg : #00000080;
+    TouchArea {
+        clicked => { SettingsState.close(); }
+    }
+    card := Rectangle {
+        width: min(880px, parent.width - 48px);
+        height: min(580px, parent.height - 48px);
+        border-radius: 14px;
+        background: Theme.dark ? #1a1a1f : #fbfbfd;
+        border-width: 1px;
+        border-color: Theme.panel-edge;
+        drop-shadow-blur: 40px;
+        drop-shadow-offset-y: 14px;
+        drop-shadow-color: Theme.shadow;
+        clip: true;
+        // Swallow clicks inside the card (only the backdrop closes it).
+        TouchArea { }
         HorizontalLayout {
             // Section list.
             Rectangle {
-                width: 230px;
-                background: Theme.dark ? #18181d : #f3f3f6;
+                width: 220px;
+                border-top-left-radius: 14px;
+                border-bottom-left-radius: 14px;
+                background: Theme.dark ? #16161b : #f2f2f6;
                 VerticalLayout {
                     padding: 14px;
-                    padding-top: 18px;
+                    padding-top: 20px;
                     spacing: 2px;
-                    NavItem { icon: @image-url("icons/select.svg"); label: "Capture"; active: root.section == 0; clicked => { root.section = 0; } }
-                    NavItem { icon: @image-url("icons/sound.svg"); label: "Feedback"; active: root.section == 1; clicked => { root.section = 1; } }
-                    NavItem { icon: @image-url("icons/keyboard.svg"); label: "Hotkeys"; active: root.section == 2; clicked => { root.section = 2; } }
-                    NavItem { icon: @image-url("icons/folder.svg"); label: "Saving"; active: root.section == 3; clicked => { root.section = 3; } }
-                    NavItem { icon: @image-url("icons/power.svg"); label: "System"; active: root.section == 4; clicked => { root.section = 4; } }
+                    Text {
+                        text: "Settings";
+                        font-size: 13px;
+                        font-weight: 700;
+                        color: Theme.dim-text;
+                        horizontal-alignment: left;
+                    }
+                    Rectangle { height: 8px; }
+                    NavItem { icon: @image-url("icons/select.svg"); label: "Capture"; index: 0; }
+                    NavItem { icon: @image-url("icons/sound.svg"); label: "Feedback"; index: 1; }
+                    NavItem { icon: @image-url("icons/keyboard.svg"); label: "Hotkeys"; index: 2; }
+                    NavItem { icon: @image-url("icons/folder.svg"); label: "Saving"; index: 3; }
+                    NavItem { icon: @image-url("icons/frame.svg"); label: "Appearance"; index: 4; }
+                    NavItem { icon: @image-url("icons/power.svg"); label: "System"; index: 5; }
                     Rectangle { vertical-stretch: 1; }
-                    NavItem { icon: @image-url("icons/info.svg"); label: "About"; active: root.section == 5; clicked => { root.section = 5; } }
+                    NavItem { icon: @image-url("icons/info.svg"); label: "About"; index: 6; }
                 }
                 Rectangle {
                     x: parent.width - 1px;
@@ -278,52 +339,35 @@ export component SettingsWindow inherits Window {
             Rectangle {
                 horizontal-stretch: 1;
                 VerticalLayout {
-                    padding-left: 34px;
-                    padding-right: 34px;
-                    padding-top: 26px;
+                    padding-left: 32px;
+                    padding-right: 32px;
+                    padding-top: 22px;
                     spacing: 4px;
                     alignment: start;
                     Text {
-                        text: root.section == 0 ? "Capture" : root.section == 1 ? "Feedback" : root.section == 2 ? "Hotkeys" : root.section == 3 ? "Saving" : root.section == 4 ? "System" : "About";
+                        property <int> s: SettingsState.section;
+                        text: self.s == 0 ? "Capture" : self.s == 1 ? "Feedback" : self.s == 2 ? "Hotkeys" : self.s == 3 ? "Saving" : self.s == 4 ? "Appearance" : self.s == 5 ? "System" : "About";
                         font-size: 24px;
                         font-weight: 700;
                         color: Theme.text;
                     }
                     Rectangle { height: 10px; }
 
-                    if root.section == 0: VerticalLayout {
-                        Row {
-                            icon: @image-url("icons/select.svg");
-                            title: "Snip when you let go";
-                            help: "Off: adjust the box with its handles, then press Enter";
-                            Toggle { y: 19px; on <=> root.capture-on-release; toggled => { root.changed(); } }
-                        }
-                        Row {
-                            icon: @image-url("icons/printscreen.svg");
-                            title: "Print Screen key";
-                            help: "Snip with Print Screen. Turns off Windows' own Print Screen snipping";
-                            Toggle { y: 19px; on <=> root.print-screen; toggled(v) => { root.print-screen-changed(v); } }
-                        }
+                    if SettingsState.section == 0: VerticalLayout {
                         Row {
                             icon: @image-url("icons/hdr.svg");
                             title: "HDR capture";
-                            help: "Tone-map HDR screens for games and video (a little slower)";
+                            help: "Better colours on HDR screens (games, video), a little slower";
                             last: true;
-                            Toggle { y: 19px; on <=> root.hdr-capture; toggled => { root.changed(); } }
+                            Toggle { y: 19px; on <=> SettingsState.hdr-capture; toggled => { SettingsState.changed(); } }
                         }
                     }
-                    if root.section == 1: VerticalLayout {
+                    if SettingsState.section == 1: VerticalLayout {
                         Row {
                             icon: @image-url("icons/sound.svg");
                             title: "Capture sound";
                             help: "A camera shutter when a snip is taken";
-                            Toggle { y: 19px; on <=> root.capture-sound; toggled => { root.changed(); } }
-                        }
-                        Row {
-                            icon: @image-url("icons/frame.svg");
-                            title: "Flash a frame";
-                            help: "Briefly outline the area that was snipped";
-                            Toggle { y: 19px; on <=> root.capture-frame; toggled => { root.changed(); } }
+                            Toggle { y: 19px; on <=> SettingsState.capture-sound; toggled => { SettingsState.changed(); } }
                         }
                         Row {
                             icon: @image-url("icons/timer.svg");
@@ -342,10 +386,10 @@ export component SettingsWindow inherits Window {
                                     Rectangle {
                                         width: 34px;
                                         Image { source: @image-url("icons/minus.svg"); width: 15px; height: 15px; colorize: Theme.text; }
-                                        TouchArea { mouse-cursor: pointer; clicked => { root.preview-seconds = max(1, root.preview-seconds - 1); root.changed(); } }
+                                        TouchArea { mouse-cursor: pointer; clicked => { SettingsState.preview-seconds = max(1, SettingsState.preview-seconds - 1); SettingsState.changed(); } }
                                     }
                                     Text {
-                                        text: root.preview-seconds + " s";
+                                        text: SettingsState.preview-seconds + " s";
                                         font-size: 13.5px;
                                         font-weight: 600;
                                         color: Theme.text;
@@ -356,86 +400,90 @@ export component SettingsWindow inherits Window {
                                     Rectangle {
                                         width: 34px;
                                         Image { source: @image-url("icons/plus.svg"); width: 15px; height: 15px; colorize: Theme.text; }
-                                        TouchArea { mouse-cursor: pointer; clicked => { root.preview-seconds = min(60, root.preview-seconds + 1); root.changed(); } }
+                                        TouchArea { mouse-cursor: pointer; clicked => { SettingsState.preview-seconds = min(60, SettingsState.preview-seconds + 1); SettingsState.changed(); } }
                                     }
                                 }
                             }
                         }
                     }
-                    if root.section == 2: VerticalLayout {
+                    if SettingsState.section == 2: VerticalLayout {
                         Row {
                             icon: @image-url("icons/keyboard.svg");
                             title: "Snip";
                             help: "Opens the snip overlay; press it again to cancel";
-                            HotkeyField {
-                                y: 14px;
-                                keys: root.hk-region;
-                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
-                                changed(v) => { root.hotkey-changed("region", v); }
-                            }
+                            HotkeyField { y: 14px; keys: SettingsState.hk-region; changed(v) => { SettingsState.hotkey-changed("region", v); } }
                         }
                         Row {
                             icon: @image-url("icons/frame.svg");
                             title: "Full screen";
                             help: "Snips the screen under the cursor at once";
-                            HotkeyField {
-                                y: 14px;
-                                keys: root.hk-fullscreen;
-                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
-                                changed(v) => { root.hotkey-changed("fullscreen", v); }
-                            }
+                            HotkeyField { y: 14px; keys: SettingsState.hk-fullscreen; changed(v) => { SettingsState.hotkey-changed("fullscreen", v); } }
                         }
                         Row {
                             icon: @image-url("icons/redo.svg");
                             title: "Repeat last area";
                             help: "Snips the same area again";
                             last: true;
-                            HotkeyField {
-                                y: 14px;
-                                keys: root.hk-repeat;
-                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
-                                changed(v) => { root.hotkey-changed("repeat", v); }
-                            }
+                            HotkeyField { y: 14px; keys: SettingsState.hk-repeat; changed(v) => { SettingsState.hotkey-changed("repeat", v); } }
                         }
                         Text {
-                            text: "Click a field and press the keys. Esc cancels, Backspace clears. In the snip overlay, right-click snips the full screen and middle-click repeats the last area.";
+                            text: "Click a field and press the keys. Esc cancels, Backspace clears.";
                             font-size: 12px;
                             color: Theme.dim-text;
                             wrap: word-wrap;
                         }
                     }
-                    if root.section == 3: VerticalLayout {
+                    if SettingsState.section == 3: VerticalLayout {
                         Row {
                             icon: @image-url("icons/folder.svg");
                             title: "Save folder";
-                            help: root.save-dir;
-                            last: true;
+                            help: SettingsState.save-dir;
                             HorizontalLayout {
                                 spacing: 6px;
-                                SmallButton { y: 17px; label: "Change"; clicked => { root.browse-folder(); } }
-                                SmallButton { y: 17px; label: "Open"; clicked => { root.open-folder(); } }
+                                SmallButton { y: 17px; label: "Change"; clicked => { SettingsState.browse-folder(); } }
+                                SmallButton { y: 17px; label: "Open"; clicked => { SettingsState.open-folder(); } }
                             }
                         }
-                        Text {
-                            text: "Snips go to the clipboard; only Save writes a file. Save asks for a name and remembers the last folder you used.";
-                            font-size: 12px;
-                            color: Theme.dim-text;
-                            wrap: word-wrap;
+                        Row {
+                            icon: @image-url("icons/save.svg");
+                            title: "Save format";
+                            help: "The format Save starts with; you can still pick another";
+                            last: true;
+                            Choice {
+                                y: 15px;
+                                options: [{ key: "png", label: "PNG" }, { key: "jpg", label: "JPEG" }, { key: "webp", label: "WebP" }];
+                                value <=> SettingsState.save-format;
+                                picked => { SettingsState.changed(); }
+                            }
                         }
                     }
-                    if root.section == 4: VerticalLayout {
+                    if SettingsState.section == 4: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/frame.svg");
+                            title: "Theme";
+                            help: "Light or dark, or follow the Windows setting";
+                            last: true;
+                            Choice {
+                                y: 15px;
+                                options: [{ key: "system", label: "Windows" }, { key: "light", label: "Light" }, { key: "dark", label: "Dark" }];
+                                value <=> SettingsState.theme;
+                                picked => { SettingsState.changed(); }
+                            }
+                        }
+                    }
+                    if SettingsState.section == 5: VerticalLayout {
                         Row {
                             icon: @image-url("icons/power.svg");
                             title: "Start with Windows";
                             help: "Glint waits in the tray, using about 2 MB of memory";
                             last: true;
-                            Toggle { y: 19px; on <=> root.start-with-windows; toggled(v) => { root.start-with-windows-changed(v); } }
+                            Toggle { y: 19px; on <=> SettingsState.start-with-windows; toggled(v) => { SettingsState.start-with-windows-changed(v); } }
                         }
                     }
-                    if root.section == 5: VerticalLayout {
+                    if SettingsState.section == 6: VerticalLayout {
                         spacing: 10px;
                         Text {
-                            text: "Glint " + root.version;
+                            text: "Glint " + SettingsState.version;
                             font-size: 15px;
                             font-weight: 600;
                             color: Theme.text;
@@ -446,19 +494,35 @@ export component SettingsWindow inherits Window {
                             color: Theme.dim-text;
                         }
                         HorizontalLayout {
-                            spacing: 6px;
                             alignment: start;
-                            SmallButton { label: "Website"; clicked => { root.open-website(); } }
-                            SmallButton { label: "Open config.toml"; clicked => { root.open-file(); } }
+                            SmallButton { label: "Website"; clicked => { SettingsState.open-website(); } }
                         }
                     }
-                    if root.note != "": Text {
-                        text: root.note;
+                    if SettingsState.note != "": Text {
+                        text: SettingsState.note;
                         font-size: 12px;
                         color: #ef4444;
                         wrap: word-wrap;
                     }
                 }
+            }
+        }
+        // Close.
+        Rectangle {
+            x: parent.width - 44px;
+            y: 12px;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: cl.has-hover ? Theme.hover : transparent;
+            Text {
+                text: "✕";
+                font-size: 14px;
+                color: Theme.dim-text;
+            }
+            cl := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { SettingsState.close(); }
             }
         }
     }

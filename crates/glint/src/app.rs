@@ -543,6 +543,7 @@ pub fn run_command(cmd: Command) {
         frame,
         with(|a| a.last_rect).flatten(),
         c.capture_on_release,
+        &c.hotkeys.region,
         move |outcome| match outcome {
             Outcome::Capture {
                 image,
@@ -600,9 +601,8 @@ fn finish(image: Image, rect: Rect, monitor: Monitor, app: Option<String>) {
     if c.capture_sound && !test_dir_set() {
         crate::feedback::play_sound();
     }
-    if c.capture_frame {
-        crate::feedback::flash(&rect, monitor.dpi);
-    }
+    // The frame flash is always on (owner, 2026-11-12).
+    crate::feedback::flash(&rect, monitor.dpi);
     toast::show(
         image,
         monitor,

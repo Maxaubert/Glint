@@ -21,8 +21,10 @@ pub struct Config {
     pub capture_on_release: bool,
     /// Play a short shutter sound when a snip is taken.
     pub capture_sound: bool,
-    /// Flash a frame around the area that was snipped.
-    pub capture_frame: bool,
+    /// The format Save starts with: "png", "jpg" or "webp".
+    pub save_format: String,
+    /// "system" (follow Windows), "light" or "dark".
+    pub theme: String,
 }
 
 impl Default for Config {
@@ -35,7 +37,8 @@ impl Default for Config {
             hdr_capture: false,
             capture_on_release: true,
             capture_sound: true,
-            capture_frame: true,
+            save_format: "png".into(),
+            theme: "system".into(),
         }
     }
 }

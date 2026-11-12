@@ -290,6 +290,18 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       Check 'big image: crop frame bottom line on screen' $white "image ends at row $last"
       Remove-Item "$work\out\editor-window.png"
     }
+    # The gear's settings overlay over a picture (F8 test hook); Esc closes the overlay only.
+    Key 0x77
+    Start-Sleep -Milliseconds 400
+    Remove-Item "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-settings.png"
+    }
+    Key 0x1B
+    Start-Sleep -Milliseconds 300
+    Check 'Esc closes the settings overlay, not the editor' (-not $ed.HasExited)
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 
@@ -338,17 +350,19 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 
-  # 10. Settings window: opens, saves a change to config.toml at once, Esc closes it.
+  # 10. Settings (the tray's Settings: the editor with only the settings overlay): opens, saves a
+  #     change to config.toml at once, Esc closes the window.
   $st = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--settings') -PassThru
   $okSet = Wait-Until { [W]::FindWindow([NullString]::Value, 'Glint settings') -ne [IntPtr]::Zero } 10000
   Check 'settings window opens' $okSet
   if ($okSet) {
     Start-Sleep -Milliseconds 700
     $hw = [W]::FindWindow([NullString]::Value, 'Glint settings')
-    Key 0x7B                       # F12 = snapshot
-    if (Wait-Until { Test-Path "$work\out\settings-window.png" }) {
+    Remove-Item "$work\out\editor-window.png" -ErrorAction SilentlyContinue
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
       Start-Sleep -Milliseconds 200
-      Copy-Item -Force "$work\out\settings-window.png" "$PSScriptRoot\..\..\.e2e\settings-window.png"
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\settings-window.png"
     }
     Key 0x78                       # F9 (test hook) = flip the capture sound
     Check 'settings saves at once' (Wait-Until { (Get-Content $env:GLINT_CONFIG -Raw) -match 'capture_sound = false' })
