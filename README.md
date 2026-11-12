@@ -95,6 +95,11 @@ makensis /DVERSION=0.1.0 installer\glint.nsi   # dist\Glint-Setup-x64-0.1.0.exe
 
 Design notes and the roadmap of ideas: [docs/2026-11-12-v1-spec-and-plan.md](docs/2026-11-12-v1-spec-and-plan.md).
 
+## Credits
+
+The capture sound is "Camera shutter" (6305) from the Freesound community on
+[Pixabay](https://pixabay.com/sound-effects/), used under the Pixabay Content License, pitched up one semitone.
+
 ## License
 
 [MIT](LICENSE)

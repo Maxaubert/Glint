@@ -4,7 +4,6 @@
 use crate::gfx::{self, px, rgb};
 use glint_core::Rect;
 use std::cell::RefCell;
-use std::sync::OnceLock;
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::Graphics::Gdi::*;
@@ -14,50 +13,11 @@ use windows::Win32::UI::WindowsAndMessaging::*;
 
 // ---------------------------------------------------------------- sound
 
-/// A synthesized camera-shutter "ch-chk": two short noise bursts with a fast decay, 16-bit mono.
+/// A real camera shutter (Pixabay "camera-shutter-6305", pitched up one semitone), 16-bit mono WAV.
+/// Credit and license: README, "Credits".
 fn shutter_wav() -> &'static [u8] {
-    static WAV: OnceLock<Vec<u8>> = OnceLock::new();
-    WAV.get_or_init(|| {
-        const RATE: u32 = 44_100;
-        let n = (RATE as f32 * 0.14) as usize;
-        let mut seed: u32 = 0x1234_5678;
-        let mut samples = Vec::with_capacity(n);
-        let mut lp = 0.0f32;
-        for i in 0..n {
-            let t = i as f32 / RATE as f32;
-            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            let noise = (seed >> 9) as f32 / (1u32 << 23) as f32 * 2.0 - 1.0;
-            // Soften the hiss a little with a one-pole low-pass.
-            lp += (noise - lp) * 0.45;
-            let burst = |start: f32, len: f32| -> f32 {
-                if t < start {
-                    0.0
-                } else {
-                    (-(t - start) / len).exp()
-                }
-            };
-            let env = 0.9 * burst(0.0, 0.012) + 0.6 * burst(0.055, 0.018);
-            samples.push((lp * env * 0.5 * i16::MAX as f32) as i16);
-        }
-        let data_len = (samples.len() * 2) as u32;
-        let mut v = Vec::with_capacity(44 + data_len as usize);
-        v.extend_from_slice(b"RIFF");
-        v.extend_from_slice(&(36 + data_len).to_le_bytes());
-        v.extend_from_slice(b"WAVEfmt ");
-        v.extend_from_slice(&16u32.to_le_bytes());
-        v.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        v.extend_from_slice(&1u16.to_le_bytes()); // mono
-        v.extend_from_slice(&RATE.to_le_bytes());
-        v.extend_from_slice(&(RATE * 2).to_le_bytes());
-        v.extend_from_slice(&2u16.to_le_bytes());
-        v.extend_from_slice(&16u16.to_le_bytes());
-        v.extend_from_slice(b"data");
-        v.extend_from_slice(&data_len.to_le_bytes());
-        for s in samples {
-            v.extend_from_slice(&s.to_le_bytes());
-        }
-        v
-    })
+    static WAV: &[u8] = include_bytes!("../../../assets/shutter.wav");
+    WAV
 }
 
 pub fn play_sound() {
