@@ -458,6 +458,11 @@ impl Editor {
                 self.sel = None;
             }
         }
+        // Handles and the selection box belong to the Select tool. A drawing tool selects the
+        // new shape only while it is being drawn (owner, 2026-11-12).
+        if self.tool != Tool::Select {
+            self.sel = None;
+        }
         if let Drag::Crop { .. } = drag {
             if self
                 .crop_pending
@@ -543,7 +548,6 @@ impl Editor {
                     kind: Kind::Text { at: edit.at, text },
                     style: edit.style,
                 });
-                self.sel = Some(self.shapes.len() - 1);
             }
         }
     }
@@ -644,13 +648,19 @@ mod tests {
     }
 
     #[test]
-    fn selected_shape_moves_with_any_tool() {
+    fn drawing_does_not_select_but_select_tool_moves() {
         let mut e = ed();
         e.set_tool(Tool::Rect);
         drag(&mut e, (100.0, 100.0), (200.0, 200.0), NO);
-        assert_eq!(e.sel, Some(0));
-        // Grab the border of the selected rectangle and move it.
+        assert_eq!(e.sel, None, "no handles after drawing");
+        // Drawing over a shape with a drawing tool makes a new shape.
+        drag(&mut e, (100.0, 130.0), (150.0, 160.0), NO);
+        assert_eq!(e.shapes.len(), 2);
+        e.undo();
+        // The Select tool grabs the border of the rectangle and moves it.
+        e.set_tool(Tool::Select);
         drag(&mut e, (100.0, 130.0), (110.0, 140.0), NO);
+        assert_eq!(e.sel, Some(0));
         assert_eq!(e.shapes.len(), 1);
         assert!(matches!(e.shapes[0].kind, Kind::Rect { a, .. } if a == pt(110.0, 110.0)));
         assert_eq!(e.undo.len(), 2);
@@ -661,6 +671,8 @@ mod tests {
         let mut e = ed();
         e.set_tool(Tool::Rect);
         drag(&mut e, (100.0, 100.0), (200.0, 200.0), NO);
+        e.set_tool(Tool::Select);
+        drag(&mut e, (100.0, 130.0), (100.0, 130.0), NO); // click selects
         drag(&mut e, (200.0, 200.0), (300.0, 250.0), NO);
         assert!(matches!(e.shapes[0].kind, Kind::Rect { b, .. } if b == pt(300.0, 250.0)));
     }
@@ -743,6 +755,8 @@ mod tests {
     fn recolor_selected_is_undoable() {
         let mut e = ed();
         drag(&mut e, (10.0, 10.0), (200.0, 100.0), NO);
+        e.set_tool(Tool::Select);
+        drag(&mut e, (105.0, 55.0), (105.0, 55.0), NO); // click the arrow
         e.set_color(2);
         assert_eq!(e.shapes[0].style.color, PALETTE[2]);
         e.undo();
