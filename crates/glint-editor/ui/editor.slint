@@ -5,6 +5,7 @@ export struct ToolItem {
     id: string,
     glyph: string,
     tip: string,
+    key: string,
 }
 
 global Theme {
@@ -14,16 +15,18 @@ global Theme {
     out property <color> accent: #8b5cf6;
     out property <color> text: #ececf1;
     out property <color> dim-text: #9a9aa6;
+    out property <color> tip-bg: #2a2a31;
     out property <string> icons: "Segoe Fluent Icons";
 }
 
 component IconButton inherits Rectangle {
     in property <string> glyph;
     in property <string> tip;
+    in property <string> key;
     in property <bool> active;
     in property <bool> enabled: true;
     callback clicked;
-    callback hovered(string);
+    callback hovered(string, string, length);
     width: 34px;
     height: 34px;
     border-radius: 6px;
@@ -39,7 +42,7 @@ component IconButton inherits Rectangle {
     ta := TouchArea {
         enabled: root.enabled;
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
     }
 }
 
@@ -47,9 +50,10 @@ component TextButton inherits Rectangle {
     in property <string> glyph;
     in property <string> label;
     in property <string> tip;
+    in property <string> key;
     in property <bool> primary;
     callback clicked;
-    callback hovered(string);
+    callback hovered(string, string, length);
     height: 34px;
     border-radius: 6px;
     background: root.primary ? (ta.has-hover ? #9d74f7 : Theme.accent) : (ta.has-hover ? Theme.hover : transparent);
@@ -73,7 +77,7 @@ component TextButton inherits Rectangle {
     }
     ta := TouchArea {
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
     }
 }
 
@@ -81,8 +85,9 @@ component Swatch inherits Rectangle {
     in property <color> swatch;
     in property <bool> active;
     in property <string> tip;
+    in property <string> key;
     callback clicked;
-    callback hovered(string);
+    callback hovered(string, string, length);
     width: 26px;
     height: 34px;
     Rectangle {
@@ -95,7 +100,7 @@ component Swatch inherits Rectangle {
     }
     TouchArea {
         clicked => { root.clicked(); }
-        changed has-hover => { root.hovered(self.has-hover ? root.tip : ""); }
+        changed has-hover => { root.hovered(self.has-hover ? root.tip : "", root.key, root.absolute-position.x + root.width / 2); }
     }
 }
 
@@ -154,7 +159,38 @@ export component EditorWindow inherits Window {
         ti.select-all();
     }
 
-    property <string> tip;
+    // Tooltip under the hovered toolbar button. It appears after a short pause; moving to the
+    // next button within the hide delay keeps it up and just moves it.
+    property <string> tip-name;
+    property <string> tip-key;
+    property <length> tip-x;
+    property <bool> tip-want;
+    property <bool> tip-shown;
+    function hover-tip(name: string, key: string, x: length) {
+        if name != "" {
+            root.tip-name = name;
+            root.tip-key = key;
+            root.tip-x = x;
+            root.tip-want = true;
+        } else {
+            root.tip-want = false;
+        }
+    }
+    // Tests only (see main.rs, F11).
+    public function show-tip(name: string, key: string, x: float) {
+        root.hover-tip(name, key, x * 1px);
+        root.tip-shown = true;
+    }
+    Timer {
+        interval: 450ms;
+        running: root.tip-want && !root.tip-shown;
+        triggered => { root.tip-shown = true; }
+    }
+    Timer {
+        interval: 150ms;
+        running: !root.tip-want && root.tip-shown;
+        triggered => { root.tip-shown = false; }
+    }
 
     keys := FocusScope {
         key-pressed(e) => {
@@ -178,12 +214,13 @@ export component EditorWindow inherits Window {
                         y: 8px;
                         glyph: t.glyph;
                         tip: t.tip;
+                        key: t.key;
                         active: root.tool == t.id;
                         clicked => {
                             root.tool-selected(t.id);
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         width: 10px;
@@ -193,12 +230,13 @@ export component EditorWindow inherits Window {
                         y: 8px;
                         swatch: c;
                         active: i == root.color-index;
-                        tip: "Colour  (" + (i + 1) + ")";
+                        tip: "Colour";
+                        key: i + 1;
                         clicked => {
                             root.color-selected(i);
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         width: 10px;
@@ -207,12 +245,13 @@ export component EditorWindow inherits Window {
                     IconButton {
                         y: 8px;
                         glyph: "\u{E949}";
-                        tip: "Thinner  ([)";
+                        tip: "Thinner";
+                        key: "[";
                         clicked => {
                             root.size-step(-1);
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         width: 26px;
@@ -227,12 +266,13 @@ export component EditorWindow inherits Window {
                     IconButton {
                         y: 8px;
                         glyph: "\u{E948}";
-                        tip: "Thicker  (])";
+                        tip: "Thicker";
+                        key: "]";
                         clicked => {
                             root.size-step(1);
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         horizontal-stretch: 1;
@@ -240,24 +280,26 @@ export component EditorWindow inherits Window {
                     IconButton {
                         y: 8px;
                         glyph: "\u{E7A7}";
-                        tip: "Undo  (Ctrl+Z)";
+                        tip: "Undo";
+                        key: "Ctrl+Z";
                         enabled: root.can-undo;
                         clicked => {
                             root.action("undo");
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     IconButton {
                         y: 8px;
                         glyph: "\u{E7A6}";
-                        tip: "Redo  (Ctrl+Y)";
+                        tip: "Redo";
+                        key: "Ctrl+Y";
                         enabled: root.can-redo;
                         clicked => {
                             root.action("redo");
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         width: 10px;
@@ -267,12 +309,13 @@ export component EditorWindow inherits Window {
                         y: 8px;
                         glyph: "\u{E8C8}";
                         label: "Copy";
-                        tip: "Copy to the clipboard  (Ctrl+C, Enter copies and closes)";
+                        tip: "Copy to the clipboard";
+                        key: "Ctrl+C";
                         clicked => {
                             root.action("copy");
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                     Rectangle {
                         width: 4px;
@@ -281,13 +324,14 @@ export component EditorWindow inherits Window {
                         y: 8px;
                         glyph: "\u{E74E}";
                         label: "Save";
-                        tip: "Save as PNG, JPEG or WebP  (Ctrl+S)";
+                        tip: "Save as PNG, JPEG or WebP";
+                        key: "Ctrl+S";
                         primary: true;
                         clicked => {
                             root.action("save");
                             keys.focus();
                         }
-                        hovered(s) => { root.tip = s; }
+                        hovered(n, k, x) => { root.hover-tip(n, k, x); }
                     }
                 }
             }
@@ -361,7 +405,7 @@ export component EditorWindow inherits Window {
                     x: 12px;
                     width: parent.width - 210px;
                     height: parent.height;
-                    text: root.tip != "" ? root.tip : root.status;
+                    text: root.status;
                     overflow: elide;
                     color: Theme.dim-text;
                     font-size: 12px;
@@ -376,6 +420,53 @@ export component EditorWindow inherits Window {
                     font-size: 12px;
                     horizontal-alignment: right;
                     vertical-alignment: center;
+                }
+            }
+        }
+        // The tooltip, drawn over everything.
+        tooltip := Rectangle {
+            property <length> w: tip-row.preferred-width;
+            x: clamp(root.tip-x - self.w / 2, 6px, root.width - self.w - 6px);
+            y: root.tip-shown ? 55px : 51px;
+            width: self.w;
+            height: 30px;
+            opacity: root.tip-shown ? 1 : 0;
+            animate opacity { duration: 120ms; easing: ease-out; }
+            animate y { duration: 120ms; easing: ease-out; }
+            animate x { duration: root.tip-shown ? 90ms : 0ms; easing: ease-out; }
+            border-radius: 8px;
+            background: Theme.tip-bg;
+            border-width: 1px;
+            border-color: #ffffff1f;
+            drop-shadow-blur: 14px;
+            drop-shadow-offset-y: 4px;
+            drop-shadow-color: #00000080;
+            tip-row := HorizontalLayout {
+                padding-left: 11px;
+                padding-right: root.tip-key != "" ? 6px : 11px;
+                spacing: 9px;
+                Text {
+                    text: root.tip-name;
+                    color: Theme.text;
+                    font-size: 12.5px;
+                    vertical-alignment: center;
+                }
+                if root.tip-key != "": Rectangle {
+                    y: (30px - 20px) / 2;
+                    height: 20px;
+                    width: cap.preferred-width + 12px;
+                    border-radius: 5px;
+                    background: #ffffff12;
+                    border-width: 1px;
+                    border-color: #ffffff1a;
+                    cap := Text {
+                        text: root.tip-key;
+                        color: Theme.dim-text;
+                        font-size: 11px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
                 }
             }
         }

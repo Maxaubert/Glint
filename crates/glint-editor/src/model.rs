@@ -182,7 +182,7 @@ impl Tool {
             Tool::Select => "Select and move",
             Tool::Arrow => "Arrow",
             Tool::Rect => "Rectangle",
-            Tool::Ellipse => "Ellipse (circle things)",
+            Tool::Ellipse => "Ellipse",
             Tool::Highlight => "Highlighter",
             Tool::Pen => "Pen",
             Tool::Text => "Text",

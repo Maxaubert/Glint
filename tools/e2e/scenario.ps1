@@ -192,6 +192,19 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       [W]::PostMessage($hw, 0x0202, [IntPtr]0, (ImgPt $bx $by)) | Out-Null
       Start-Sleep -Milliseconds 200
     }
+    # The toolbar tooltip (F11 test hook: a hidden desktop has no cursor to hover with).
+    Key 0x7A
+    Start-Sleep -Milliseconds 300
+    Key 0x7B                       # F12 = window snapshot
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Move-Item -Force "$work\out\editor-window.png" "$work\out\editor-tooltip.png"
+      New-Item -ItemType Directory -Force "$PSScriptRoot\..\..\.e2e" | Out-Null
+      Copy-Item -Force "$work\out\editor-tooltip.png" "$PSScriptRoot\..\..\.e2e\editor-tooltip.png"
+      $tb = New-Object System.Drawing.Bitmap "$work\out\editor-tooltip.png"
+      $px = $tb.GetPixel([int](25 * $s), [int](70 * $s)); $tb.Dispose()
+      Check 'toolbar tooltip draws' ($px.R -ge 0x24 -and $px.R -le 0x34 -and $px.B -ge 0x2a -and $px.B -le 0x3a) "($($px.R),$($px.G),$($px.B))"
+    } else { Check 'tooltip snapshot written' $false }
     DragImg 100 100 400 300        # arrow (default tool)
     Key 0x4F                       # O = ellipse
     DragImg 500 100 700 300

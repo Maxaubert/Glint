@@ -447,7 +447,8 @@ fn main() {
         .map(|t| ToolItem {
             id: t.id().into(),
             glyph: t.glyph().into(),
-            tip: format!("{}  ({})", t.name(), t.key()).into(),
+            tip: t.name().into(),
+            key: t.key().to_string().into(),
         })
         .collect();
     ui.set_tools(ModelRc::new(VecModel::from(tools)));
@@ -709,6 +710,12 @@ fn on_key(
     }
     if is(text, Key::F12) {
         snapshot(ui);
+        return (true, false);
+    }
+    // Tests only: F11 opens the arrow tool's tooltip (a hidden desktop has no real cursor, so
+    // Windows ends a posted hover at once).
+    if is(text, Key::F11) && std::env::var_os("GLINT_TEST_DIR").is_some() {
+        ui.invoke_show_tip("Arrow".into(), "A".into(), 61.0);
         return (true, false);
     }
     if a.ed.text_edit.is_some() {
