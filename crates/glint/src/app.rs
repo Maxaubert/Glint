@@ -481,13 +481,18 @@ pub fn run_command(cmd: Command) {
     let frame = if std::env::var_os("GLINT_TEST_SYNTHETIC").is_some() {
         Ok(glint_capture::synthetic_desktop())
     } else {
-        // While Wind magnifies, every capture API sees the zoomed screen: ask Wind for one
-        // unzoomed frame first (see wind.rs).
-        let blinked = crate::wind::start();
-        let f = glint_capture::capture_desktop(c.hdr_capture);
-        if blinked {
-            crate::wind::end();
-            log::line("captured under Wind with a capture blink");
+        // While Wind magnifies, every capture API sees the zoomed screen: ask Wind for the real
+        // picture of its monitor first, then paste it over the normal capture (see wind.rs).
+        let mons = glint_capture::monitors::enumerate();
+        let (mw, mh) = mons.iter().fold((1, 1), |(w, h), m| {
+            (w.max(m.rect.w as u32), h.max(m.rect.h as u32))
+        });
+        let wind = crate::wind::grab(mw, mh);
+        let mut f = glint_capture::capture_desktop(c.hdr_capture);
+        if let (Ok(frame), Some(wf)) = (f.as_mut(), wind) {
+            let (ox, oy) = frame.origin;
+            frame.image.blit(&wf.image, wf.x - ox, wf.y - oy);
+            log::line("captured under Wind zoom with a capture blink");
         }
         f
     };
