@@ -141,7 +141,7 @@ impl Renderer {
                 if let Some(path) = polyline(pts) {
                     let mut p = paint(c);
                     p.blend_mode = BlendMode::Multiply;
-                    let mut st = stroke(w * 3.0);
+                    let mut st = stroke(w * crate::editor::HIGHLIGHT_WIDTH);
                     st.line_cap = LineCap::Square;
                     pm.stroke_path(&path, &p, &st, t, None);
                 }

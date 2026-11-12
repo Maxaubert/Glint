@@ -2,7 +2,6 @@
 //! Positions here are in document pixels (the full image, before any crop).
 
 use crate::model::*;
-use std::collections::HashMap;
 
 pub const PALETTE: [[u8; 4]; 6] = [
     [255, 59, 48, 255],   // red
@@ -15,6 +14,8 @@ pub const PALETTE: [[u8; 4]; 6] = [
 
 /// Stroke widths in screen (logical) pixels; multiplied by the display scale.
 pub const SIZES: [f32; 7] = [2.0, 3.0, 5.0, 8.0, 12.0, 18.0, 26.0];
+/// The highlighter draws this many times wider than the size.
+pub const HIGHLIGHT_WIDTH: f32 = 3.0;
 
 #[derive(Clone, PartialEq)]
 struct Snapshot {
@@ -63,7 +64,6 @@ pub struct Editor {
     pub text_edit: Option<TextEdit>,
     /// Changed since the last copy or save.
     pub dirty: bool,
-    styles: HashMap<Tool, (usize, usize)>,
     drag: Drag,
     before: Option<Snapshot>,
     undo: Vec<Snapshot>,
@@ -72,14 +72,6 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(width: u32, height: u32, scale: f32) -> Editor {
-        let mut styles = HashMap::new();
-        styles.insert(Tool::Arrow, (0, 2));
-        styles.insert(Tool::Rect, (0, 1));
-        styles.insert(Tool::Ellipse, (0, 1));
-        styles.insert(Tool::Highlight, (1, 3));
-        styles.insert(Tool::Pen, (0, 1));
-        styles.insert(Tool::Text, (0, 2));
-        styles.insert(Tool::Step, (0, 2));
         Editor {
             width,
             height,
@@ -93,7 +85,6 @@ impl Editor {
             scale: scale.max(0.5),
             text_edit: None,
             dirty: false,
-            styles,
             drag: Drag::None,
             before: None,
             undo: Vec::new(),
@@ -195,11 +186,8 @@ impl Editor {
         if self.tool == Tool::Crop && t != Tool::Crop {
             self.apply_crop();
         }
+        // Colour and size are shared by all tools and kept between images (owner, 2026-11-12).
         self.tool = t;
-        if let Some(&(c, s)) = self.styles.get(&t) {
-            self.color = c;
-            self.size = s;
-        }
         if t != Tool::Select {
             self.sel = None;
         }
@@ -208,7 +196,6 @@ impl Editor {
     /// Picks a colour; also recolours the selected shape.
     pub fn set_color(&mut self, i: usize) {
         self.color = i.min(PALETTE.len() - 1);
-        self.remember_style();
         if let Some(idx) = self.sel {
             if self.shapes[idx].has_color() && self.shapes[idx].style.color != PALETTE[self.color] {
                 self.checkpoint();
@@ -220,7 +207,6 @@ impl Editor {
     /// Changes the size by `delta` steps; also resizes the selected shape.
     pub fn bump_size(&mut self, delta: i32) {
         self.size = (self.size as i32 + delta).clamp(0, SIZES.len() as i32 - 1) as usize;
-        self.remember_style();
         if let Some(idx) = self.sel {
             let w = SIZES[self.size] * self.scale;
             if self.shapes[idx].style.width != w {
@@ -230,18 +216,15 @@ impl Editor {
         }
     }
 
-    fn remember_style(&mut self) {
-        let tool = match self.sel.map(|i| &self.shapes[i].kind) {
-            Some(Kind::Arrow { .. }) => Tool::Arrow,
-            Some(Kind::Rect { .. }) => Tool::Rect,
-            Some(Kind::Ellipse { .. }) => Tool::Ellipse,
-            Some(Kind::Highlight { .. }) => Tool::Highlight,
-            Some(Kind::Pen { .. }) => Tool::Pen,
-            Some(Kind::Text { .. }) => Tool::Text,
-            Some(Kind::Step { .. }) => Tool::Step,
-            _ => self.tool,
-        };
-        self.styles.insert(tool, (self.color, self.size));
+    /// Diameter of the brush-outline cursor in display pixels: the pen and highlighter show how
+    /// thick they draw; other tools show none (0).
+    pub fn brush(&self) -> f32 {
+        let w = SIZES[self.size] * self.scale;
+        match self.tool {
+            Tool::Pen => w,
+            Tool::Highlight => w * HIGHLIGHT_WIDTH,
+            _ => 0.0,
+        }
     }
 
     pub fn delete_selected(&mut self) -> bool {
@@ -318,6 +301,7 @@ impl Editor {
         match self.tool {
             Tool::Select => "default",
             Tool::Text => "text",
+            Tool::Pen | Tool::Highlight => "none",
             _ => "cross",
         }
     }
@@ -740,14 +724,30 @@ mod tests {
     }
 
     #[test]
-    fn styles_are_remembered_per_tool() {
+    fn style_is_shared_between_tools() {
+        let mut e = ed();
+        e.set_tool(Tool::Pen);
+        e.set_color(3);
+        e.bump_size(2);
+        let size = e.size;
+        e.set_tool(Tool::Highlight);
+        assert_eq!((e.color, e.size), (3, size));
+        e.set_tool(Tool::Arrow);
+        assert_eq!((e.color, e.size), (3, size));
+    }
+
+    #[test]
+    fn brush_outline_follows_size() {
         let mut e = ed();
         e.set_tool(Tool::Arrow);
-        e.set_color(3);
+        assert_eq!(e.brush(), 0.0);
+        e.set_tool(Tool::Pen);
+        let pen = e.brush();
+        assert!(pen > 0.0);
         e.set_tool(Tool::Highlight);
-        assert_eq!(e.color, 1);
-        e.set_tool(Tool::Arrow);
-        assert_eq!(e.color, 3);
+        assert_eq!(e.brush(), pen * HIGHLIGHT_WIDTH);
+        e.bump_size(1);
+        assert!(e.brush() > pen * HIGHLIGHT_WIDTH);
     }
 
     #[test]

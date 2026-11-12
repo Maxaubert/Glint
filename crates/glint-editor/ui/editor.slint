@@ -131,6 +131,9 @@ export component EditorWindow inherits Window {
     in property <bool> can-redo;
     in property <string> status;
     in property <string> cursor: "cross";
+    // Pen and highlighter: an outlined circle as wide as the stroke replaces the cursor
+    // (display pixels of the visible area; 0 = none).
+    in property <float> brush;
     in property <bool> crop-pending;
 
     // On-canvas text box (image pixel coordinates of its top-left, and font size in image pixels).
@@ -353,7 +356,7 @@ export component EditorWindow inherits Window {
                     ta := TouchArea {
                         property <float> ix: self.mouse-x / max(1px, self.width) * root.img-w;
                         property <float> iy: self.mouse-y / max(1px, self.height) * root.img-h;
-                        mouse-cursor: root.cursor == "move" ? MouseCursor.move : root.cursor == "nwse" ? MouseCursor.nwse-resize : root.cursor == "nesw" ? MouseCursor.nesw-resize : root.cursor == "ew" ? MouseCursor.ew-resize : root.cursor == "ns" ? MouseCursor.ns-resize : root.cursor == "text" ? MouseCursor.text : root.cursor == "default" ? MouseCursor.default : MouseCursor.crosshair;
+                        mouse-cursor: root.cursor == "move" ? MouseCursor.move : root.cursor == "nwse" ? MouseCursor.nwse-resize : root.cursor == "nesw" ? MouseCursor.nesw-resize : root.cursor == "ew" ? MouseCursor.ew-resize : root.cursor == "ns" ? MouseCursor.ns-resize : root.cursor == "text" ? MouseCursor.text : root.cursor == "default" ? MouseCursor.default : root.cursor == "none" ? MouseCursor.none : MouseCursor.crosshair;
                         pointer-event(e) => {
                             if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
                                 keys.focus();
@@ -366,6 +369,27 @@ export component EditorWindow inherits Window {
                         }
                         double-clicked => {
                             root.double-click(self.ix, self.iy);
+                        }
+                    }
+
+                    // Brush outline: a white ring inside a dark one, readable on any image.
+                    if root.brush > 0 && root.cursor == "none" && ta.has-hover: Rectangle {
+                        property <length> d: max(6px, root.brush / root.img-w * img.width);
+                        x: ta.mouse-x - self.width / 2;
+                        y: ta.mouse-y - self.height / 2;
+                        width: self.d + 2px;
+                        height: self.d + 2px;
+                        border-radius: self.width / 2;
+                        border-width: 1px;
+                        border-color: #00000099;
+                        Rectangle {
+                            x: 1px;
+                            y: 1px;
+                            width: parent.d;
+                            height: parent.d;
+                            border-radius: parent.d / 2;
+                            border-width: 1.5px;
+                            border-color: #ffffffe6;
                         }
                     }
                 }

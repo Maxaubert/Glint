@@ -57,10 +57,38 @@ fn parse_args() -> Args {
     a
 }
 
-/// Remembered between runs: the last folder used to save.
+/// Remembered between runs: the last folder used to save, and the colour and size.
 #[derive(Default, Serialize, Deserialize)]
 struct State {
     last_dir: Option<PathBuf>,
+    color: Option<usize>,
+    size: Option<usize>,
+}
+
+/// Writes the colour and size to the state file when they changed, so the next image (and the
+/// next editor) starts with them.
+fn persist_style(ed: &Editor) {
+    thread_local! {
+        static LAST: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+    }
+    let now = (ed.color, ed.size);
+    if LAST.with(|l| l.replace(Some(now))) == Some(now) {
+        return;
+    }
+    let mut s = load_state();
+    if (s.color, s.size) != (Some(now.0), Some(now.1)) {
+        s.color = Some(now.0);
+        s.size = Some(now.1);
+        save_state(&s);
+    }
+}
+
+/// A new editor with the remembered colour and size.
+fn editor_for(img: &Image, scale: f32, color: usize, size: usize) -> Editor {
+    let mut ed = Editor::new(img.width, img.height, scale);
+    ed.color = color.min(glint_editor::editor::PALETTE.len() - 1);
+    ed.size = size.min(glint_editor::editor::SIZES.len() - 1);
+    ed
 }
 
 fn state_path() -> PathBuf {
@@ -132,13 +160,21 @@ struct App {
 
 impl App {
     fn new(img: &Image, name: String, save_dir: PathBuf, scale: f32) -> App {
+        let state = load_state();
+        let defaults = Editor::new(1, 1, scale);
+        let ed = editor_for(
+            img,
+            scale,
+            state.color.unwrap_or(defaults.color),
+            state.size.unwrap_or(defaults.size),
+        );
         App {
-            ed: Editor::new(img.width, img.height, scale),
+            ed,
             r: Renderer::new(img),
             name,
             save_dir,
             temp_file: None,
-            state: load_state(),
+            state,
             status: String::new(),
         }
     }
@@ -194,6 +230,8 @@ impl App {
                 self.ed.dirty = false;
                 self.status = format!("Saved {}", path.display());
                 self.state.last_dir = path.parent().map(Path::to_path_buf);
+                self.state.color = Some(self.ed.color);
+                self.state.size = Some(self.ed.size);
                 save_state(&self.state);
             }
             Err(e) => message(&format!("Could not save the image.\n\n{e}")),
@@ -284,6 +322,8 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
     ui.set_tool(app.ed.tool.id().into());
     ui.set_color_index(app.ed.color as i32);
     ui.set_size_index(app.ed.size as i32);
+    ui.set_brush(app.ed.brush());
+    persist_style(&app.ed);
     ui.set_can_undo(app.ed.can_undo());
     ui.set_can_redo(app.ed.can_redo());
     ui.set_crop_pending(app.ed.crop_pending.is_some());
@@ -642,7 +682,7 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         }
         "paste" => match clipboard::get_image(hwnd()) {
             Ok(Some(img)) if a.ed.shapes.is_empty() => {
-                a.ed = Editor::new(img.width, img.height, a.ed.scale);
+                a.ed = editor_for(&img, a.ed.scale, a.ed.color, a.ed.size);
                 a.r = Renderer::new(&img);
                 a.status = "Pasted the clipboard image".into();
             }
