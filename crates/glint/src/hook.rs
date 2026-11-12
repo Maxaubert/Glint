@@ -74,6 +74,14 @@ unsafe extern "system" fn proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         let injected = kb.flags.0 & LLKHF_INJECTED.0 != 0;
         if !injected {
             let down = wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN;
+            // While the overlay is open the Win key must not open Start: a masking key while Win
+            // is down makes Windows skip the Start menu on release (Win+ combos still work).
+            if ESC_GUARD.load(Ordering::Relaxed)
+                && down
+                && (kb.vkCode == VK_LWIN.0 as u32 || kb.vkCode == VK_RWIN.0 as u32)
+            {
+                mask_win_key();
+            }
             if ESC_GUARD.load(Ordering::Relaxed) && kb.vkCode == VK_ESCAPE.0 as u32 {
                 if down {
                     let hwnd = HWND(TARGET.load(Ordering::Relaxed) as *mut _);

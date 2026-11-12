@@ -487,18 +487,41 @@ pub fn run_command(cmd: Command) {
     let frame = if std::env::var_os("GLINT_TEST_SYNTHETIC").is_some() {
         Ok(glint_capture::synthetic_desktop())
     } else {
-        // While Wind magnifies, every capture API sees the zoomed screen: ask Wind for the real
-        // picture of its monitor first, then paste it over the normal capture (see wind.rs).
-        let mons = glint_capture::monitors::enumerate();
-        let (mw, mh) = mons.iter().fold((1, 1), |(w, h), m| {
-            (w.max(m.rect.w as u32), h.max(m.rect.h as u32))
-        });
-        let wind = crate::wind::grab(mw, mh);
+        // While Wind magnifies, GDI and DXGI see the zoomed screen. Windows.Graphics.Capture sees
+        // the real desktop (like the Snipping Tool), so with Wind running each monitor is taken
+        // that way and pasted over the normal capture: no blink. If that fails, Wind's capture
+        // blink is the fallback (wind.rs).
         let mut f = glint_capture::capture_desktop(c.hdr_capture);
-        if let (Ok(frame), Some(wf)) = (f.as_mut(), wind) {
-            let (ox, oy) = frame.origin;
-            frame.image.blit(&wf.image, wf.x - ox, wf.y - oy);
-            log::line("captured under Wind zoom with a capture blink");
+        if crate::wind::running() {
+            if let Ok(frame) = f.as_mut() {
+                let (ox, oy) = frame.origin;
+                let tw = std::time::Instant::now();
+                let mons = glint_capture::monitors::enumerate();
+                let mut failed = false;
+                for m in &mons {
+                    match glint_capture::wgc::capture_monitor(&m.rect) {
+                        Ok(img) => frame.image.blit(&img, m.rect.x - ox, m.rect.y - oy),
+                        Err(e) => {
+                            log::line(&format!("graphics capture failed: {e}"));
+                            failed = true;
+                        }
+                    }
+                }
+                if failed {
+                    let (mw, mh) = mons.iter().fold((1, 1), |(w, h), m| {
+                        (w.max(m.rect.w as u32), h.max(m.rect.h as u32))
+                    });
+                    if let Some(wf) = crate::wind::grab(mw, mh) {
+                        frame.image.blit(&wf.image, wf.x - ox, wf.y - oy);
+                        log::line("captured under Wind zoom with a capture blink");
+                    }
+                } else {
+                    log::line(&format!(
+                        "captured under Wind with graphics capture in {} ms",
+                        tw.elapsed().as_millis()
+                    ));
+                }
+            }
         }
         f
     };

@@ -36,7 +36,10 @@ use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 // overlay tools such as RivaTuner (RTSS) treat the idle daemon as a Direct3D app and attach to it,
 // which cost about 55 MB of private memory (measured 2026-11-12).
 
-fn proc_addr(dll: PCWSTR, name: PCSTR) -> Result<unsafe extern "system" fn() -> isize, String> {
+pub(crate) fn proc_addr(
+    dll: PCWSTR,
+    name: PCSTR,
+) -> Result<unsafe extern "system" fn() -> isize, String> {
     unsafe {
         let h = LoadLibraryW(dll).map_err(|e| format!("LoadLibrary: {e}"))?;
         GetProcAddress(h, name).ok_or_else(|| "GetProcAddress failed".to_string())

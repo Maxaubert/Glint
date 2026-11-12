@@ -10,6 +10,7 @@
 pub mod gdi;
 pub mod hdr;
 pub mod monitors;
+pub mod wgc;
 pub mod windows_list;
 
 use glint_core::geom::virtual_bounds;
