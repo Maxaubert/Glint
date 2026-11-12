@@ -239,25 +239,6 @@ impl App {
             Err(e) => message(&format!("Could not save the image.\n\n{e}")),
         }
     }
-
-    fn hint(&self) -> String {
-        if !self.status.is_empty() {
-            return self.status.clone();
-        }
-        match self.ed.tool {
-            Tool::Select => "Click a shape to select it. Drag to move. Delete removes it. Arrow keys nudge.",
-            Tool::Arrow => "Drag to draw an arrow. Shift snaps to 15\u{00B0}. Drag the middle handle to curve it.",
-            Tool::Rect => "Drag to draw a box. Shift makes a square, Alt draws from the centre.",
-            Tool::Ellipse => "Drag to circle something. Shift makes a circle, Alt draws from the centre.",
-            Tool::Highlight => "Drag over text to highlight it. Shift keeps the line straight.",
-            Tool::Pen => "Draw freehand. Shift draws a straight line.",
-            Tool::Text => "Click to type. Enter finishes. Double-click text to edit it.",
-            Tool::Step => "Click to add numbered steps. They renumber when you delete one.",
-            Tool::Blur => "Drag over anything private to blur it. The blur is permanent in the saved image.",
-            Tool::Crop => "Drag a corner or edge. It crops a second after you let go. Enter crops now, Esc resets, Ctrl+Z undoes.",
-        }
-        .into()
-    }
 }
 
 fn write_image(img: &Image, path: &Path) -> Result<(), String> {
@@ -343,7 +324,8 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
         }
         None => ui.set_crop_frame(CropFrame::default()),
     }
-    ui.set_status(app.hint().into());
+    // Only results of actions (copied, saved, errors); no tool hints (owner, 2026-11-12).
+    ui.set_status(app.status.clone().into());
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
     ui.set_window_title(format!("{}{} - Glint", app.name, dot).into());
     match &app.ed.text_edit {
@@ -487,7 +469,7 @@ fn main() {
     let app = Rc::new(RefCell::new(app));
 
     // Window size: the image at 100 % plus the toolbars, capped to 92 % of the work area.
-    let chrome = ((50.0 + 26.0 + 24.0) * scale) as i32;
+    let chrome = ((50.0 + 24.0) * scale) as i32;
     let pad = (24.0 * scale) as i32;
     let w = (image.width as i32 + pad).clamp((980.0 * scale) as i32, work.w * 92 / 100);
     let h = (image.height as i32 + chrome).clamp((360.0 * scale) as i32, work.h * 92 / 100);

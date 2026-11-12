@@ -387,10 +387,7 @@ impl Overlay {
             }
             self.paint_size(&l, &t, dpi);
         }
-        let drawing = matches!(self.drag, Drag::New { .. } | Drag::Handle { .. });
-        if !drawing {
-            self.paint_hint(dpi);
-        }
+        self.paint_hint(dpi);
         unsafe {
             let _ = BitBlt(hdc, 0, 0, self.vb.w, self.vb.h, Some(dc), 0, 0, SRCCOPY);
         }
@@ -486,17 +483,7 @@ impl Overlay {
         let h = px(32, dpi);
         let x = mon.x + (mon.w - w) / 2;
         let y = mon.y + px(16, dpi);
-        // Skip the hint when the cursor or selection is right under it.
-        let (cx, cy) = (self.cur.0 - self.vb.x, self.cur.1 - self.vb.y);
-        let near = Rect::new(
-            x - px(20, dpi),
-            y - px(20, dpi),
-            w + px(40, dpi),
-            h + px(40, dpi),
-        );
-        if near.contains(cx, cy) {
-            return;
-        }
+        // Always shown, also with the cursor under it (owner, 2026-11-12).
         let pill = Rect::new(x, y, w, h);
         gfx::round_rect(
             dc,

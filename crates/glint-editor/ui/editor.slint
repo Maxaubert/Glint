@@ -165,6 +165,8 @@ export component EditorWindow inherits Window {
     in property <bool> can-undo;
     in property <bool> can-redo;
     in property <string> status;
+    property <bool> status-visible;
+    changed status => { root.status-visible = root.status != ""; }
     in property <string> cursor: "cross";
     // Pen and highlighter: an outlined circle as wide as the stroke replaces the cursor
     // (display pixels of the visible area; 0 = none).
@@ -235,6 +237,11 @@ export component EditorWindow inherits Window {
     public function show-tip(name: string, key: string, x: float) {
         root.hover-tip(name, key, x * 1px);
         root.tip-shown = true;
+    }
+    Timer {
+        interval: 3s;
+        running: root.status-visible;
+        triggered => { root.status-visible = false; }
     }
     Timer {
         interval: 450ms;
@@ -524,6 +531,26 @@ export component EditorWindow inherits Window {
                     }
                 }
 
+                // Image size, small and dim in the bottom-right corner (no status bar).
+                Text {
+                    x: parent.width - self.width - 12px;
+                    y: parent.height - self.height - 6px;
+                    text: root.img-w + " \u{00D7} " + root.img-h;
+                    color: #9a9aa6b0;
+                    font-size: 11px;
+                }
+                // Results of actions (copied, saved, errors), bottom-left, gone after a few seconds.
+                Text {
+                    x: 12px;
+                    y: parent.height - self.height - 6px;
+                    width: parent.width - 160px;
+                    text: root.status;
+                    visible: root.status-visible;
+                    overflow: elide;
+                    color: Theme.dim-text;
+                    font-size: 11px;
+                }
+
                 // The text box sits over the canvas where the text will go.
                 Rectangle {
                     visible: root.text-editing;
@@ -548,32 +575,6 @@ export component EditorWindow inherits Window {
                             keys.focus();
                         }
                     }
-                }
-            }
-
-            // Status line (no layout inside, so the zoom text cannot feed back into the window size)
-            Rectangle {
-                height: 26px;
-                background: Theme.bar;
-                Text {
-                    x: 12px;
-                    width: parent.width - 210px;
-                    height: parent.height;
-                    text: root.status;
-                    overflow: elide;
-                    color: Theme.dim-text;
-                    font-size: 12px;
-                    vertical-alignment: center;
-                }
-                Text {
-                    x: parent.width - 192px;
-                    width: 180px;
-                    height: parent.height;
-                    text: root.img-w + " \u{00D7} " + root.img-h + "   " + round(area.fit * 100) + " %";
-                    color: Theme.dim-text;
-                    font-size: 12px;
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
                 }
             }
         }

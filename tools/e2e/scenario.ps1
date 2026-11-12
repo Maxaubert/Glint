@@ -180,7 +180,7 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
     $rc = New-Object W+RECT; [W]::GetClientRect($hw, [ref]$rc) | Out-Null
     $s = [W]::GetDpiForWindow($hw) / 96.0
     $cw = $rc.R; $ch = $rc.B
-    $top = 50 * $s; $areaH = $ch - $top - 26 * $s
+    $top = 50 * $s; $areaH = $ch - $top
     $fit = [math]::Min(1, [math]::Min(($cw - 24 * $s) / 800, ($areaH - 24 * $s) / 500))
     $x0 = ($cw - 800 * $fit) / 2; $y0 = $top + ($areaH - 500 * $fit) / 2
     function ImgPt([double] $x, [double] $y) { LParam ([int]($x0 + $x * $fit)) ([int]($y0 + $y * $fit)) }
