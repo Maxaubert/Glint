@@ -81,7 +81,7 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   Check 'fullscreen capture written' (Wait-Until { Test-Path (Out-File-N 2) })
   if (Test-Path (Out-File-N 2)) { Write-Output "      fullscreen size $(Png-Size (Out-File-N 2))" }
 
-  # 3. Region overlay: drag from (100,100) to (400,300) in client pixels, then Enter.
+  # 3. Region overlay: drag from (100,100) to (400,300) in client pixels; letting go snips (default).
   Glint @('region')
   Check 'overlay opens' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero })
   $ov = [W]::FindWindow('GlintOverlay', [NullString]::Value)
@@ -89,12 +89,14 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 100 100)) | Out-Null   # WM_LBUTTONDOWN
   foreach ($i in 1..10) { [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam (100 + 30 * $i) (100 + 20 * $i))) | Out-Null }
   [W]::PostMessage($ov, 0x0202, [IntPtr]0, (LParam 400 300)) | Out-Null   # WM_LBUTTONUP
-  Start-Sleep -Milliseconds 100
-  Check 'overlay waits for Enter' ([W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero)
-  [W]::PostMessage($ov, 0x0100, [IntPtr]0x0D, [IntPtr]0) | Out-Null        # WM_KEYDOWN Enter
-  Check 'overlay closes on Enter' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -eq [IntPtr]::Zero })
+  Check 'overlay closes on release' (Wait-Until { [W]::FindWindow('GlintOverlay', [NullString]::Value) -eq [IntPtr]::Zero })
   Check 'region capture written' (Wait-Until { Test-Path (Out-File-N 3) })
   if (Test-Path (Out-File-N 3)) { Check 'region capture size' ((Png-Size (Out-File-N 3)) -eq '301x201') (Png-Size (Out-File-N 3)) }
+
+  # capture_on_release = false: the box waits for adjustments and Enter.
+  (Get-Content $env:GLINT_CONFIG) -replace '^preview_seconds = 30$', "preview_seconds = 30`ncapture_on_release = false" | Set-Content -Encoding utf8 $env:GLINT_CONFIG
+  (Get-Item $env:GLINT_CONFIG).LastWriteTime = (Get-Date).AddSeconds(5)
+  Check 'settings reloaded' (Wait-Until { (Get-Content "$work\local\Glint\glint.log" -ErrorAction SilentlyContinue) -match 'settings reloaded' })
 
   # 4. Arrow keys adjust the selection: Right moves, Shift is not held so size stays.
   Glint @('region')
@@ -103,6 +105,8 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   [W]::PostMessage($ov, 0x0201, [IntPtr]1, (LParam 50 50)) | Out-Null
   [W]::PostMessage($ov, 0x0200, [IntPtr]1, (LParam 149 99)) | Out-Null
   [W]::PostMessage($ov, 0x0202, [IntPtr]0, (LParam 149 99)) | Out-Null
+  Start-Sleep -Milliseconds 100
+  Check 'overlay waits for Enter' ([W]::FindWindow('GlintOverlay', [NullString]::Value) -ne [IntPtr]::Zero)
   [W]::PostMessage($ov, 0x0100, [IntPtr]0x27, [IntPtr]0) | Out-Null        # Right arrow
   [W]::PostMessage($ov, 0x0100, [IntPtr]0x0D, [IntPtr]0) | Out-Null
   Check 'nudged capture written' (Wait-Until { Test-Path (Out-File-N 4) })

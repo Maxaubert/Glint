@@ -49,7 +49,7 @@ The installer is not signed yet, so SmartScreen may warn on first run.
 | Where | Key or action | Does |
 |---|---|---|
 | Anywhere | `Win+Shift+S` | Open the snip overlay |
-| Overlay | Drag, then `Enter` or double-click | Snip the box |
+| Overlay | Drag and let go | Snip the box (with `capture_on_release = false`: adjust, then `Enter`) |
 | Overlay | Right-click / middle-click | Full screen / last area |
 | Overlay | Arrows, `Shift`+arrows, `Ctrl` for 10 px | Move / resize the box |
 | Overlay | `F`, `Shift+F`, `Esc` | Full screen, all screens, cancel |
@@ -68,7 +68,7 @@ Print Screen key instead, or turn off start with Windows.
 ```toml
 preview_seconds = 6          # how long the preview card stays
 save_dir = 'D:\Screenshots'   # default: Pictures\Glint
-capture_on_release = false   # snip as soon as you let go of the mouse
+capture_on_release = true    # snip when you let go; false = adjust the box, then Enter
 hdr_capture = false          # re-capture HDR screens with tone mapping (for HDR games and video)
 
 [hotkeys]

@@ -17,7 +17,7 @@ pub struct Config {
     /// Re-capture HDR monitors through DXGI and tone-map them. Better colours for HDR games and
     /// video, about 200 ms slower. Desktop content looks right without it.
     pub hdr_capture: bool,
-    /// Snip as soon as the mouse is released, instead of waiting for Enter or a double-click.
+    /// Snip as soon as the mouse is released (default). False: adjust the box, then Enter or a double-click.
     pub capture_on_release: bool,
     /// Play a short shutter sound when a snip is taken.
     pub capture_sound: bool,
@@ -33,7 +33,7 @@ impl Default for Config {
             preview_seconds: 6,
             print_screen: false,
             hdr_capture: false,
-            capture_on_release: false,
+            capture_on_release: true,
             capture_sound: true,
             capture_frame: true,
         }

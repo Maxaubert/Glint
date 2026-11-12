@@ -1,6 +1,7 @@
 //! The capture overlay: one topmost window over the whole virtual desktop showing the frozen frame.
 //!
-//! Drag a box, adjust it with the handles or the arrow keys, Enter to capture.
+//! Drag a box and let go to capture. With capture_on_release off, adjust it with the handles or
+//! the arrow keys first, then Enter.
 //! Right-click captures the whole monitor under the cursor; middle-click repeats the last region.
 
 use crate::gfx::{self, px, rgb, Dib, Font};
@@ -449,7 +450,9 @@ impl Overlay {
     fn paint_hint(&self, dpi: u32) {
         let mon = local_rect(self.monitor().rect, &self.vb);
         let font = Font::ui(px(12, dpi));
-        let text = if self.sel.is_some() {
+        let text = if self.sel.is_some() && self.capture_on_release {
+            "Let go to snip   \u{00B7}   Esc cancel"
+        } else if self.sel.is_some() {
             "Enter to snip   \u{00B7}   Drag handles or arrows to adjust   \u{00B7}   Esc cancel"
         } else if self.last.is_some() {
             "Drag to snip   \u{00B7}   Right-click full screen   \u{00B7}   Middle-click last area   \u{00B7}   Esc cancel"
