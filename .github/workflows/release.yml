@@ -63,7 +63,13 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /V2 "/DVERSION=${{ steps.ver.outputs.version }}" installer\glint.nsi
+          # NSIS is no longer on the windows-latest image: install it when missing.
+          $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (-not (Test-Path $nsis)) {
+            choco install nsis -y --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          & $nsis /V2 "/DVERSION=${{ steps.ver.outputs.version }}" installer\glint.nsi
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # Optional: SignPath Foundation (free for open-source). Enrol the repo first, then add the
