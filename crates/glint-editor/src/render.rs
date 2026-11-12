@@ -85,7 +85,9 @@ impl Renderer {
             }
         }
         if ui {
-            if let Some(s) = ed.sel.and_then(|i| ed.shapes.get(i)) {
+            // Only the Select tool shows the box and handles; drawing shows just the shape.
+            let sel = ed.sel.filter(|_| ed.tool == crate::model::Tool::Select);
+            if let Some(s) = sel.and_then(|i| ed.shapes.get(i)) {
                 draw_selection(&mut pm, s, ed.scale);
             }
             if let Some(c) = ed.crop_pending {

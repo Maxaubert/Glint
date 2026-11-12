@@ -385,7 +385,6 @@ impl Editor {
         let _ = m;
         self.shapes.push(Shape { kind, style });
         let idx = self.shapes.len() - 1;
-        self.sel = Some(idx);
         self.drag = Drag::Create { idx, start: p };
     }
 
