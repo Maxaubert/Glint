@@ -8,6 +8,41 @@ export struct ToolItem {
     key: string,
 }
 
+// The crop frame in parts (0..1) of the shown image.
+export struct CropFrame {
+    show: bool,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    grid: bool,
+}
+
+// A white handle bar with a thin dark edge, so it shows on white and on dark images.
+component CropBar inherits Rectangle {
+    background: #00000099;
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: parent.width - 2px;
+        height: parent.height - 2px;
+        background: #ffffff;
+    }
+}
+
+// A thirds-grid line: white with a dark line beside it.
+component GridLine inherits Rectangle {
+    in property <bool> vertical;
+    background: #ffffffb0;
+    Rectangle {
+        x: root.vertical ? 1px : 0;
+        y: root.vertical ? 0 : 1px;
+        width: root.vertical ? 1px : parent.width;
+        height: root.vertical ? parent.height : 1px;
+        background: #00000059;
+    }
+}
+
 global Theme {
     out property <color> bg: #141417;
     out property <color> bar: #1f1f24;
@@ -135,6 +170,7 @@ export component EditorWindow inherits Window {
     // (display pixels of the visible area; 0 = none).
     in property <float> brush;
     in property <bool> crop-pending;
+    in property <CropFrame> crop-frame;
     // Crop settle animation (main.rs settle_crop): the cropped image starts where the frame was
     // and zooms to its fitted place.
     in-out property <bool> settling;
@@ -389,6 +425,80 @@ export component EditorWindow inherits Window {
                         }
                         double-clicked => {
                             root.double-click(self.ix, self.iy);
+                        }
+                    }
+
+                    // Crop frame, iOS style. Drawn here in window pixels, not into the picture:
+                    // shrinking a picture to fit drops its last rows, which hid the bottom line,
+                    // and the lines keep one thickness at any zoom.
+                    if root.crop-frame.show: cf := Rectangle {
+                        property <length> l: root.crop-frame.x0 * img.width;
+                        property <length> t: root.crop-frame.y0 * img.height;
+                        property <length> r: root.crop-frame.x1 * img.width;
+                        property <length> b: root.crop-frame.y1 * img.height;
+                        property <length> th: 5px;
+                        property <length> len: max(self.th * 2, min(22px, min((self.r - self.l) / 3, (self.b - self.t) / 3)));
+                        x: 0;
+                        y: 0;
+                        width: img.width;
+                        height: img.height;
+                        // Dim outside the frame.
+                        Rectangle { x: 0; y: 0; width: parent.width; height: parent.t; background: #0000008c; }
+                        Rectangle { x: 0; y: parent.b; width: parent.width; height: parent.height - parent.b; background: #0000008c; }
+                        Rectangle { x: 0; y: parent.t; width: parent.l; height: parent.b - parent.t; background: #0000008c; }
+                        Rectangle { x: parent.r; y: parent.t; width: parent.width - parent.r; height: parent.b - parent.t; background: #0000008c; }
+                        // Thirds grid while dragging.
+                        for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
+                            vertical: true;
+                            x: parent.l + (parent.r - parent.l) * k / 3 - 1px;
+                            y: parent.t;
+                            width: 1px;
+                            height: parent.b - parent.t;
+                        }
+                        for k in (root.crop-frame.grid ? [1, 2] : []): GridLine {
+                            x: parent.l;
+                            y: parent.t + (parent.b - parent.t) * k / 3 - 1px;
+                            width: parent.r - parent.l;
+                            height: 1px;
+                        }
+                        // Frame line on a soft dark line.
+                        Rectangle {
+                            x: parent.l;
+                            y: parent.t;
+                            width: parent.r - parent.l;
+                            height: parent.b - parent.t;
+                            border-width: 3px;
+                            border-color: #0000006e;
+                        }
+                        Rectangle {
+                            x: parent.l;
+                            y: parent.t;
+                            width: parent.r - parent.l;
+                            height: parent.b - parent.t;
+                            border-width: 1.5px;
+                            border-color: #ffffffeb;
+                        }
+                        // Corners.
+                        CropBar { x: parent.l; y: parent.t; width: parent.len; height: parent.th; }
+                        CropBar { x: parent.l; y: parent.t; width: parent.th; height: parent.len; }
+                        CropBar { x: parent.r - parent.len; y: parent.t; width: parent.len; height: parent.th; }
+                        CropBar { x: parent.r - parent.th; y: parent.t; width: parent.th; height: parent.len; }
+                        CropBar { x: parent.l; y: parent.b - parent.th; width: parent.len; height: parent.th; }
+                        CropBar { x: parent.l; y: parent.b - parent.len; width: parent.th; height: parent.len; }
+                        CropBar { x: parent.r - parent.len; y: parent.b - parent.th; width: parent.len; height: parent.th; }
+                        CropBar { x: parent.r - parent.th; y: parent.b - parent.len; width: parent.th; height: parent.len; }
+                        // Edge bars, when the edge is long enough.
+                        if cf.r - cf.l > cf.len * 4: CropBar {
+                            x: (parent.l + parent.r - parent.len) / 2; y: parent.t; width: parent.len; height: parent.th;
+                        }
+                        if cf.r - cf.l > cf.len * 4: CropBar {
+                            x: (parent.l + parent.r - parent.len) / 2; y: parent.b - parent.th; width: parent.len; height: parent.th;
+                        }
+                        if cf.b - cf.t > cf.len * 4: CropBar {
+                            x: parent.l; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
+                        }
+                        if cf.b - cf.t > cf.len * 4: CropBar {
+                            x: parent.r - parent.th; y: (parent.t + parent.b - parent.len) / 2; width: parent.th; height: parent.len;
                         }
                     }
 

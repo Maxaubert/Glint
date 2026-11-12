@@ -14,6 +14,7 @@ public static class W {
   [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint type);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
 "@
@@ -236,6 +237,39 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
       $out.Dispose()
     }
     if ($env:GLINT_E2E_KEEP) { Copy-Item "$work\out\editor-window.png" $env:GLINT_E2E_KEEP -ErrorAction SilentlyContinue }
+  }
+  if (-not $ed.HasExited) { $ed.Kill() }
+
+  # 8b. A picture bigger than the screen: the window must still fit on the screen (it zooms out).
+  $bigPng = "$work\e2e-big.png"
+  $big = New-Object System.Drawing.Bitmap 5000, 3200
+  $g = [System.Drawing.Graphics]::FromImage($big); $g.Clear([System.Drawing.Color]::FromArgb(30, 60, 90)); $g.Dispose()
+  $big.Save($bigPng, [System.Drawing.Imaging.ImageFormat]::Png); $big.Dispose()
+  $ed = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--file', $bigPng, '--name', 'big.png') -PassThru
+  $okWin = Wait-Until { [W]::FindWindow([NullString]::Value, 'big.png - Glint') -ne [IntPtr]::Zero } 10000
+  Check 'big image: editor opens' $okWin
+  if ($okWin) {
+    Start-Sleep -Milliseconds 1200
+    $hw = [W]::FindWindow([NullString]::Value, 'big.png - Glint')
+    $wr = New-Object W+RECT; [W]::GetWindowRect($hw, [ref]$wr) | Out-Null
+    $sw = [W]::GetSystemMetrics(0); $sh = [W]::GetSystemMetrics(1)
+    Check 'big image: window fits on the screen' (($wr.R - $wr.L) -le $sw -and ($wr.B - $wr.T) -le $sh) "window $($wr.R - $wr.L)x$($wr.B - $wr.T), screen ${sw}x${sh}"
+    Key 0x43                       # C = crop: the frame must show on all four sides
+    Start-Sleep -Milliseconds 300
+    Key 0x7B
+    if (Wait-Until { Test-Path "$work\out\editor-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\editor-window.png" "$PSScriptRoot\..\..\.e2e\editor-big-crop.png"
+      # The frame's bottom line must be on screen: a white row just above the image's bottom edge.
+      $sn = New-Object System.Drawing.Bitmap "$PSScriptRoot\..\..\.e2e\editor-big-crop.png"
+      $x = [int]($sn.Width / 4); $last = -1
+      for ($y = 0; $y -lt $sn.Height; $y++) { $c = $sn.GetPixel($x, $y); if ($c.R -eq 30 -and $c.G -eq 60 -and $c.B -eq 90) { $last = $y } }
+      $white = $false
+      for ($y = $last + 1; $y -le [math]::Min($sn.Height - 1, $last + 8); $y++) { if ($sn.GetPixel($x, $y).R -gt 200) { $white = $true } }
+      $sn.Dispose()
+      Check 'big image: crop frame bottom line on screen' $white "image ends at row $last"
+      Remove-Item "$work\out\editor-window.png"
+    }
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 

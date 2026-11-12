@@ -74,8 +74,8 @@ impl Renderer {
         }
     }
 
-    /// The visible area (after crop) with all shapes. `ui`: also draw selection, handles and the
-    /// pending crop.
+    /// The visible area (after crop) with all shapes. `ui`: also draw the selection and its
+    /// handles. The crop frame is drawn by the window (editor.slint), over the image.
     pub fn render(&self, ed: &Editor, ui: bool) -> Pixmap {
         let mut pm = self.base.clone();
         let hidden = ed.hidden();
@@ -89,9 +89,6 @@ impl Renderer {
             let sel = ed.sel.filter(|_| ed.tool == crate::model::Tool::Select);
             if let Some(s) = sel.and_then(|i| ed.shapes.get(i)) {
                 draw_selection(&mut pm, s, ed.scale);
-            }
-            if let Some(c) = ed.crop_pending {
-                draw_crop(&mut pm, &c, &ed.view(), ed.scale, ed.crop_dragging());
             }
         }
         let v = ed.view();
@@ -304,99 +301,6 @@ fn draw_selection(pm: &mut Pixmap, s: &Shape, scale: f32) {
     }
 }
 
-/// The crop frame, iOS style: the outside dimmed, a thin frame, thick L-shaped corners and short
-/// bars in the middle of each edge, all inside the frame so they show at the image edges too, and
-/// a rule-of-thirds grid while dragging. Dark outlines keep it visible on white images.
-fn draw_crop(pm: &mut Pixmap, c: &Bx, view: &Bx, scale: f32, grid: bool) {
-    let dim = paint([0, 0, 0, 140]);
-    let t = Transform::identity();
-    for r in [
-        Rect::from_ltrb(view.x0, view.y0, view.x1, c.y0),
-        Rect::from_ltrb(view.x0, c.y1, view.x1, view.y1),
-        Rect::from_ltrb(view.x0, c.y0, c.x0, c.y1),
-        Rect::from_ltrb(c.x1, c.y0, view.x1, c.y1),
-    ]
-    .into_iter()
-    .flatten()
-    {
-        pm.fill_rect(r, &dim, t, None);
-    }
-    let line = |pm: &mut Pixmap, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, rgba: [u8; 4]| {
-        let mut pb = PathBuilder::new();
-        pb.move_to(x0, y0);
-        pb.line_to(x1, y1);
-        if let Some(path) = pb.finish() {
-            let st = Stroke {
-                width: w,
-                ..Default::default()
-            };
-            pm.stroke_path(&path, &paint(rgba), &st, t, None);
-        }
-    };
-    let s = scale;
-    if grid {
-        for k in [1.0, 2.0] {
-            let x = c.x0 + c.w() * k / 3.0;
-            let y = c.y0 + c.h() * k / 3.0;
-            line(pm, x, c.y0, x, c.y1, 2.0 * s, [0, 0, 0, 50]);
-            line(pm, c.x0, y, c.x1, y, 2.0 * s, [0, 0, 0, 50]);
-            line(pm, x, c.y0, x, c.y1, 1.0 * s, [255, 255, 255, 150]);
-            line(pm, c.x0, y, c.x1, y, 1.0 * s, [255, 255, 255, 150]);
-        }
-    }
-    // Frame: a white line on a soft dark line, inside the box. Filled strips, not a stroked
-    // rectangle: tiny-skia drops a stroke edge that lies on the last pixel row of the pixmap, so
-    // the bottom line went missing while the frame was around the whole image.
-    let strips = |w: f32| {
-        [
-            Rect::from_ltrb(c.x0, c.y0, c.x1, c.y0 + w),
-            Rect::from_ltrb(c.x0, c.y1 - w, c.x1, c.y1),
-            Rect::from_ltrb(c.x0, c.y0, c.x0 + w, c.y1),
-            Rect::from_ltrb(c.x1 - w, c.y0, c.x1, c.y1),
-        ]
-    };
-    for r in strips(3.0 * s).into_iter().flatten() {
-        pm.fill_rect(r, &paint([0, 0, 0, 110]), t, None);
-    }
-    for r in strips(1.5 * s).into_iter().flatten() {
-        pm.fill_rect(r, &paint([255, 255, 255, 235]), t, None);
-    }
-    // Corners and edge bars: filled bars, each over a slightly bigger dark one.
-    let th = 3.5 * s;
-    let len = (22.0 * s).min(c.w() / 3.0).min(c.h() / 3.0).max(th * 2.0);
-    let (cx, cy) = ((c.x0 + c.x1) / 2.0, (c.y0 + c.y1) / 2.0);
-    let mut bars: Vec<(f32, f32, f32, f32)> = vec![
-        (c.x0, c.y0, c.x0 + len, c.y0 + th),
-        (c.x0, c.y0, c.x0 + th, c.y0 + len),
-        (c.x1 - len, c.y0, c.x1, c.y0 + th),
-        (c.x1 - th, c.y0, c.x1, c.y0 + len),
-        (c.x0, c.y1 - th, c.x0 + len, c.y1),
-        (c.x0, c.y1 - len, c.x0 + th, c.y1),
-        (c.x1 - len, c.y1 - th, c.x1, c.y1),
-        (c.x1 - th, c.y1 - len, c.x1, c.y1),
-    ];
-    if c.w() > len * 4.0 {
-        bars.push((cx - len / 2.0, c.y0, cx + len / 2.0, c.y0 + th));
-        bars.push((cx - len / 2.0, c.y1 - th, cx + len / 2.0, c.y1));
-    }
-    if c.h() > len * 4.0 {
-        bars.push((c.x0, cy - len / 2.0, c.x0 + th, cy + len / 2.0));
-        bars.push((c.x1 - th, cy - len / 2.0, c.x1, cy + len / 2.0));
-    }
-    let shade = paint([0, 0, 0, 150]);
-    let white = paint([255, 255, 255, 255]);
-    for &(x0, y0, x1, y1) in &bars {
-        if let Some(r) = Rect::from_ltrb(x0 - s, y0 - s, x1 + s, y1 + s) {
-            pm.fill_rect(r, &shade, t, None);
-        }
-    }
-    for &(x0, y0, x1, y1) in &bars {
-        if let Some(r) = Rect::from_ltrb(x0, y0, x1, y1) {
-            pm.fill_rect(r, &white, t, None);
-        }
-    }
-}
-
 /// Runs `f` on the pixels inside `bx` (clamped), as a tight RGBA buffer.
 fn region(pm: &mut Pixmap, bx: &Bx, f: impl Fn(&mut [u8], usize, usize)) {
     let x0 = bx.x0.max(0.0).floor() as usize;
@@ -502,25 +406,6 @@ mod tests {
         box_blur(&mut buf, 64, 64, 8);
         let mid = (32 * 64 + 32) * 4;
         assert!((100..160).contains(&buf[mid]), "{}", buf[mid]);
-    }
-
-    #[test]
-    fn crop_frame_has_all_four_lines_around_the_whole_image() {
-        let img = Image::filled(300, 200, [0, 0, 0, 255]);
-        let r = Renderer::new(&img);
-        let mut e = Editor::new(300, 200, 1.0);
-        e.set_tool(crate::model::Tool::Crop);
-        let pm = r.render(&e, true);
-        let px = |x: u32, y: u32| pm.pixel(x, y).unwrap().demultiply().red();
-        // Between the corner and edge bars, on the outermost row or column.
-        for (x, y, side) in [
-            (75, 0, "top"),
-            (75, 199, "bottom"),
-            (0, 50, "left"),
-            (299, 50, "right"),
-        ] {
-            assert!(px(x, y) > 200, "{side} line missing");
-        }
     }
 
     #[test]

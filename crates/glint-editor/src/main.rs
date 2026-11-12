@@ -328,6 +328,21 @@ fn refresh_chrome(ui: &EditorWindow, app: &App) {
     ui.set_can_undo(app.ed.can_undo());
     ui.set_can_redo(app.ed.can_redo());
     ui.set_crop_pending(app.ed.crop_pending.is_some());
+    // The crop frame, as parts (0..1) of the shown image; the window draws it over the image.
+    match app.ed.crop_pending.filter(|_| app.ed.tool == Tool::Crop) {
+        Some(c) => {
+            let v = app.ed.view();
+            ui.set_crop_frame(CropFrame {
+                show: true,
+                x0: (c.x0 - v.x0) / v.w(),
+                y0: (c.y0 - v.y0) / v.h(),
+                x1: (c.x1 - v.x0) / v.w(),
+                y1: (c.y1 - v.y0) / v.h(),
+                grid: app.ed.crop_dragging(),
+            });
+        }
+        None => ui.set_crop_frame(CropFrame::default()),
+    }
     ui.set_status(app.hint().into());
     let dot = if app.ed.dirty { " \u{2022}" } else { "" };
     ui.set_window_title(format!("{}{} - Glint", app.name, dot).into());
