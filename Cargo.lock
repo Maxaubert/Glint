@@ -431,12 +431,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "byteorder"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
-
-[[package]]
 name = "byteorder-lite"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1310,7 +1304,6 @@ dependencies = [
 name = "glint-core"
 version = "0.3.0"
 dependencies = [
- "ico",
  "png 0.18.1",
  "serde",
  "toml 0.8.23",
@@ -1813,16 +1806,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
 dependencies = [
  "cc",
-]
-
-[[package]]
-name = "ico"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d75e94d66081e4d8dcd098bd8dc5254800fea14a26389b298410158d834de167"
-dependencies = [
- "byteorder",
- "png 0.18.1",
 ]
 
 [[package]]

@@ -338,6 +338,25 @@ Check 'daemon starts' $found "(window $([W]::FindWindow('GlintDaemon', [NullStri
   }
   if (-not $ed.HasExited) { $ed.Kill() }
 
+  # 10. Settings window: opens, saves a change to config.toml at once, Esc closes it.
+  $st = Start-Process -FilePath "$Bin\glint-editor.exe" -ArgumentList @('--settings') -PassThru
+  $okSet = Wait-Until { [W]::FindWindow([NullString]::Value, 'Glint settings') -ne [IntPtr]::Zero } 10000
+  Check 'settings window opens' $okSet
+  if ($okSet) {
+    Start-Sleep -Milliseconds 700
+    $hw = [W]::FindWindow([NullString]::Value, 'Glint settings')
+    Key 0x7B                       # F12 = snapshot
+    if (Wait-Until { Test-Path "$work\out\settings-window.png" }) {
+      Start-Sleep -Milliseconds 200
+      Copy-Item -Force "$work\out\settings-window.png" "$PSScriptRoot\..\..\.e2e\settings-window.png"
+    }
+    Key 0x78                       # F9 (test hook) = flip the capture sound
+    Check 'settings saves at once' (Wait-Until { (Get-Content $env:GLINT_CONFIG -Raw) -match 'capture_sound = false' })
+    Key 0x1B                       # Esc closes
+    Check 'Esc closes settings' ($st.WaitForExit(5000))
+  }
+  if (-not $st.HasExited) { $st.Kill() }
+
   Glint @('quit')
   Check 'quit stops the daemon' ($daemon.WaitForExit(5000))
 }

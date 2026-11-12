@@ -63,7 +63,7 @@ Print Screen key instead, or turn off start with Windows.
 
 ## Settings
 
-`%APPDATA%\Glint\config.toml` (tray menu: *Edit settings*). Saved changes apply within a few seconds.
+Open **Settings** from the gear in the editor or from the tray menu. It follows Windows light and dark mode, and every change applies within a few seconds. The same settings live in `%APPDATA%\Glint\config.toml`:
 
 ```toml
 preview_seconds = 6          # how long the preview card stays

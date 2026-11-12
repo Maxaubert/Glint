@@ -14,5 +14,3 @@ windows.workspace = true
 [lints]
 workspace = true
 
-[dev-dependencies]
-ico = "0.6"

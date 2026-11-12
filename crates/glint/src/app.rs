@@ -178,7 +178,14 @@ fn add_tray(hwnd: HWND) {
     let mut nid = tray_data(hwnd);
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
     nid.uCallbackMessage = WM_TRAY;
-    let size = unsafe { GetSystemMetrics(SM_CXSMICON) }.max(16) as u32;
+    // The tray draws at the system scale: the small-icon size for that DPI (36 px at 225 %).
+    let size = unsafe {
+        windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(
+            SM_CXSMICON,
+            windows::Win32::UI::HiDpi::GetDpiForSystem(),
+        )
+    }
+    .max(16) as u32;
     nid.hIcon = icon::hicon(size).unwrap_or_default();
     unsafe {
         let _ = Shell_NotifyIconW(NIM_ADD, &nid);
@@ -256,7 +263,7 @@ fn show_menu(hwnd: HWND) {
             "Start with Windows",
             system::starts_with_windows(),
         );
-        add(ID_SETTINGS, "Edit settings (config.toml)", false);
+        add(ID_SETTINGS, "Settings", false);
         sep();
         add(ID_QUIT, "Quit Glint", false);
         let mut p = POINT::default();
@@ -295,11 +302,10 @@ fn show_menu(hwnd: HWND) {
                 }
             }
             ID_SETTINGS => {
-                let p = paths::config_file();
-                if !p.exists() {
-                    let _ = Config::default().save(&p);
-                }
-                let _ = std::process::Command::new("notepad.exe").arg(&p).spawn();
+                // The settings window lives in the editor exe (no UI toolkit in this one).
+                let _ = std::process::Command::new(paths::sibling_exe("glint-editor.exe"))
+                    .arg("--settings")
+                    .spawn();
             }
             ID_QUIT => PostQuitMessage(0),
             _ => {}

@@ -9,6 +9,9 @@
 
 slint::include_modules!();
 
+mod settings;
+mod winicon;
+
 use glint_core::{clipboard, Image};
 use glint_editor::editor::{Editor, Mods, PALETTE};
 use glint_editor::model::{text_size, Tool};
@@ -50,6 +53,7 @@ fn parse_args() -> Args {
             "--temp" => a.temp = true,
             "--open" => a.open = true,
             "--paste" => a.paste = true,
+            "--settings" => {}
             other if !other.starts_with("--") => a.file = Some(PathBuf::from(other)),
             _ => {}
         }
@@ -380,7 +384,7 @@ fn cursor_monitor() -> (glint_core::Rect, f32) {
 
 /// Whether Windows apps use dark mode (Settings > Personalization > Colors). `GLINT_THEME=light` or
 /// `dark` overrides it (tests).
-fn system_dark() -> bool {
+pub(crate) fn system_dark() -> bool {
     match std::env::var("GLINT_THEME").as_deref() {
         Ok("light") => return false,
         Ok("dark") => return true,
@@ -410,6 +414,10 @@ fn main() {
     };
     unsafe {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+    if std::env::args().any(|a| a == "--settings") {
+        settings::run();
+        return;
     }
     let args = parse_args();
     let mut file = args.file.clone();
@@ -669,6 +677,7 @@ fn main() {
         });
     }
     let _ = ui.show();
+    winicon::apply_soon();
     // Match stroke widths to the real window scale (the monitor guess can differ).
     app.borrow_mut().ed.scale = ui.window().scale_factor();
     let _ = slint::run_event_loop_until_quit();
@@ -735,12 +744,10 @@ fn run_action(a: &mut App, ui: &EditorWindow, name: &str) -> bool {
         }
         "save" => a.save(),
         "settings" => {
-            // For now the settings file; a settings window is the next design step.
-            let p = glint_core::paths::config_file();
-            if !p.exists() {
-                let _ = glint_core::config::Config::default().save(&p);
+            // The settings window is this program with --settings (it focuses an open one).
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::process::Command::new(exe).arg("--settings").spawn();
             }
-            let _ = std::process::Command::new("notepad.exe").arg(&p).spawn();
             return false;
         }
         "close" => {

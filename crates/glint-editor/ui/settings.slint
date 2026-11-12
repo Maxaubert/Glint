@@ -1,0 +1,465 @@
+// The Glint settings window (docs/mockups/2026-11-12-settings-layouts.html, #3): a section list on
+// the left, the section's settings on the right. Every change is saved at once (main.rs); the
+// tray app reloads config.toml within a few seconds. Light and dark follow Windows (Theme.dark).
+
+import { Theme } from "theme.slint";
+
+component Toggle inherits Rectangle {
+    in-out property <bool> on;
+    callback toggled(bool);
+    width: 42px;
+    height: 24px;
+    border-radius: 12px;
+    background: root.on ? Theme.accent : Theme.dark ? #ffffff2e : #0000002e;
+    animate background { duration: 160ms; }
+    Rectangle {
+        x: root.on ? 21px : 3px;
+        y: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 9px;
+        background: #ffffff;
+        drop-shadow-blur: 3px;
+        drop-shadow-color: #00000055;
+        animate x { duration: 200ms; easing: cubic-bezier(0.3, 1.4, 0.5, 1); }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.on = !root.on;
+            root.toggled(root.on);
+        }
+    }
+}
+
+// One setting: icon, name, one line of help, and its control on the right.
+component Row inherits Rectangle {
+    in property <image> icon;
+    in property <string> title;
+    in property <string> help;
+    in property <bool> last;
+    min-height: 62px;
+    HorizontalLayout {
+        spacing: 14px;
+        alignment: stretch;
+        Rectangle {
+            width: 34px;
+            height: 34px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 9px;
+            background: Theme.accent.with-alpha(Theme.dark ? 0.18 : 0.13);
+            Image {
+                source: root.icon;
+                width: 17px;
+                height: 17px;
+                colorize: Theme.dark ? #a78bfa : #7c3aed;
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            horizontal-stretch: 1;
+            Text {
+                text: root.title;
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.text;
+            }
+            Text {
+                text: root.help;
+                font-size: 12.5px;
+                color: Theme.dim-text;
+                wrap: word-wrap;
+            }
+        }
+        @children
+    }
+    if !root.last: Rectangle {
+        y: parent.height - 1px;
+        height: 1px;
+        background: Theme.sep;
+    }
+}
+
+component SmallButton inherits Rectangle {
+    in property <string> label;
+    callback clicked;
+    height: 28px;
+    width: t.preferred-width + 22px;
+    border-radius: 7px;
+    background: ta.has-hover ? Theme.hover.mix(Theme.pill, 0.5) : Theme.pill;
+    border-width: 1px;
+    border-color: Theme.panel-edge;
+    t := Text {
+        text: root.label;
+        font-size: 12.5px;
+        font-weight: 600;
+        color: Theme.text;
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Shows a hotkey as key caps; click it, then press the new keys. Esc cancels, Backspace clears.
+component HotkeyField inherits Rectangle {
+    in property <[string]> keys;
+    // Rust turns the pressed keys into a hotkey; "" means "keep waiting" (only a modifier so far).
+    callback record(string, bool, bool, bool, bool) -> string;
+    callback changed(string);
+    property <bool> recording: fs.has-focus;
+    height: 34px;
+    width: max(150px, row.preferred-width + 12px);
+    border-radius: 8px;
+    background: Theme.dark ? #ffffff0d : #0000000a;
+    border-width: root.recording ? 2px : 1px;
+    border-color: root.recording ? Theme.accent : Theme.panel-edge;
+    row := HorizontalLayout {
+        x: 6px;
+        spacing: 4px;
+        alignment: start;
+        if root.recording: Text {
+            text: "Press keys…";
+            color: Theme.accent;
+            font-size: 12.5px;
+            vertical-alignment: center;
+        }
+        if !root.recording && root.keys.length == 0: Text {
+            text: "Not set";
+            color: Theme.dim-text;
+            font-size: 12.5px;
+            vertical-alignment: center;
+        }
+        for k in (root.recording ? [] : root.keys): Rectangle {
+            y: (34px - 24px) / 2;
+            height: 24px;
+            width: kt.preferred-width + 14px;
+            border-radius: 5px;
+            background: Theme.pill;
+            border-width: 1px;
+            border-color: Theme.panel-edge;
+            kt := Text {
+                text: k;
+                font-size: 12px;
+                font-weight: 600;
+                color: Theme.text;
+            }
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        clicked => { fs.focus(); }
+    }
+    fs := FocusScope {
+        key-pressed(e) => {
+            if !root.recording {
+                return reject;
+            }
+            let r = root.record(e.text, e.modifiers.control, e.modifiers.alt, e.modifiers.shift, e.modifiers.meta);
+            if r == "cancel" {
+                fs.clear-focus();
+            } else if r != "" {
+                root.changed(r);
+                fs.clear-focus();
+            }
+            accept
+        }
+    }
+}
+
+component NavItem inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> active;
+    callback clicked;
+    height: 38px;
+    border-radius: 7px;
+    background: root.active ? Theme.hover : ta.has-hover ? Theme.hover.with-alpha(0.05) : transparent;
+    if root.active: Rectangle {
+        x: 0;
+        width: 3px;
+        height: 16px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+    HorizontalLayout {
+        padding-left: 14px;
+        spacing: 12px;
+        Image {
+            source: root.icon;
+            width: 17px;
+            height: 17px;
+            y: (38px - 17px) / 2;
+            colorize: Theme.dim-text;
+        }
+        Text {
+            text: root.label;
+            font-size: 13.5px;
+            font-weight: root.active ? 600 : 400;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsWindow inherits Window {
+    title: "Glint settings";
+    icon: @image-url("../../../assets/glint-256.png");
+    background: Theme.bg;
+    default-font-family: "Segoe UI Variable Text";
+    preferred-width: 860px;
+    preferred-height: 560px;
+    min-width: 720px;
+    min-height: 460px;
+
+    in-out property <int> section: 0;
+    in-out property <bool> capture-on-release;
+    in-out property <bool> print-screen;
+    in-out property <bool> hdr-capture;
+    in-out property <bool> capture-sound;
+    in-out property <bool> capture-frame;
+    in-out property <int> preview-seconds: 6;
+    in-out property <string> save-dir;
+    in-out property <[string]> hk-region;
+    in-out property <[string]> hk-fullscreen;
+    in-out property <[string]> hk-repeat;
+    in-out property <bool> start-with-windows;
+    in property <string> version;
+    in property <string> note;
+
+    // Any toggle or stepper changed: main.rs reads the properties and saves config.toml.
+    callback changed();
+    callback start-with-windows-changed(bool);
+    callback print-screen-changed(bool);
+    callback hotkey-changed(string, string);
+    callback record-hotkey(string, bool, bool, bool, bool) -> string;
+    callback browse-folder();
+    callback open-folder();
+    callback open-file();
+    callback open-website();
+    callback key(string) -> bool;
+
+    forward-focus: keys;
+    keys := FocusScope {
+        key-pressed(e) => {
+            if root.key(e.text) {
+                return accept;
+            }
+            reject
+        }
+        HorizontalLayout {
+            // Section list.
+            Rectangle {
+                width: 230px;
+                background: Theme.dark ? #18181d : #f3f3f6;
+                VerticalLayout {
+                    padding: 14px;
+                    padding-top: 18px;
+                    spacing: 2px;
+                    NavItem { icon: @image-url("icons/select.svg"); label: "Capture"; active: root.section == 0; clicked => { root.section = 0; } }
+                    NavItem { icon: @image-url("icons/sound.svg"); label: "Feedback"; active: root.section == 1; clicked => { root.section = 1; } }
+                    NavItem { icon: @image-url("icons/keyboard.svg"); label: "Hotkeys"; active: root.section == 2; clicked => { root.section = 2; } }
+                    NavItem { icon: @image-url("icons/folder.svg"); label: "Saving"; active: root.section == 3; clicked => { root.section = 3; } }
+                    NavItem { icon: @image-url("icons/power.svg"); label: "System"; active: root.section == 4; clicked => { root.section = 4; } }
+                    Rectangle { vertical-stretch: 1; }
+                    NavItem { icon: @image-url("icons/info.svg"); label: "About"; active: root.section == 5; clicked => { root.section = 5; } }
+                }
+                Rectangle {
+                    x: parent.width - 1px;
+                    width: 1px;
+                    background: Theme.sep;
+                }
+            }
+            // The section.
+            Rectangle {
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    padding-left: 34px;
+                    padding-right: 34px;
+                    padding-top: 26px;
+                    spacing: 4px;
+                    alignment: start;
+                    Text {
+                        text: root.section == 0 ? "Capture" : root.section == 1 ? "Feedback" : root.section == 2 ? "Hotkeys" : root.section == 3 ? "Saving" : root.section == 4 ? "System" : "About";
+                        font-size: 24px;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                    Rectangle { height: 10px; }
+
+                    if root.section == 0: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/select.svg");
+                            title: "Snip when you let go";
+                            help: "Off: adjust the box with its handles, then press Enter";
+                            Toggle { y: 19px; on <=> root.capture-on-release; toggled => { root.changed(); } }
+                        }
+                        Row {
+                            icon: @image-url("icons/printscreen.svg");
+                            title: "Print Screen key";
+                            help: "Snip with Print Screen. Turns off Windows' own Print Screen snipping";
+                            Toggle { y: 19px; on <=> root.print-screen; toggled(v) => { root.print-screen-changed(v); } }
+                        }
+                        Row {
+                            icon: @image-url("icons/hdr.svg");
+                            title: "HDR capture";
+                            help: "Tone-map HDR screens for games and video (a little slower)";
+                            last: true;
+                            Toggle { y: 19px; on <=> root.hdr-capture; toggled => { root.changed(); } }
+                        }
+                    }
+                    if root.section == 1: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/sound.svg");
+                            title: "Capture sound";
+                            help: "A camera shutter when a snip is taken";
+                            Toggle { y: 19px; on <=> root.capture-sound; toggled => { root.changed(); } }
+                        }
+                        Row {
+                            icon: @image-url("icons/frame.svg");
+                            title: "Flash a frame";
+                            help: "Briefly outline the area that was snipped";
+                            Toggle { y: 19px; on <=> root.capture-frame; toggled => { root.changed(); } }
+                        }
+                        Row {
+                            icon: @image-url("icons/timer.svg");
+                            title: "Preview card";
+                            help: "Seconds the card stays in the corner (it waits while the mouse is on it)";
+                            last: true;
+                            Rectangle {
+                                width: 116px;
+                                height: 34px;
+                                y: 14px;
+                                border-radius: 8px;
+                                background: Theme.dark ? #ffffff0d : #0000000a;
+                                border-width: 1px;
+                                border-color: Theme.panel-edge;
+                                HorizontalLayout {
+                                    Rectangle {
+                                        width: 34px;
+                                        Image { source: @image-url("icons/minus.svg"); width: 15px; height: 15px; colorize: Theme.text; }
+                                        TouchArea { mouse-cursor: pointer; clicked => { root.preview-seconds = max(1, root.preview-seconds - 1); root.changed(); } }
+                                    }
+                                    Text {
+                                        text: root.preview-seconds + " s";
+                                        font-size: 13.5px;
+                                        font-weight: 600;
+                                        color: Theme.text;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                        horizontal-stretch: 1;
+                                    }
+                                    Rectangle {
+                                        width: 34px;
+                                        Image { source: @image-url("icons/plus.svg"); width: 15px; height: 15px; colorize: Theme.text; }
+                                        TouchArea { mouse-cursor: pointer; clicked => { root.preview-seconds = min(60, root.preview-seconds + 1); root.changed(); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.section == 2: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/keyboard.svg");
+                            title: "Snip";
+                            help: "Opens the snip overlay; press it again to cancel";
+                            HotkeyField {
+                                y: 14px;
+                                keys: root.hk-region;
+                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
+                                changed(v) => { root.hotkey-changed("region", v); }
+                            }
+                        }
+                        Row {
+                            icon: @image-url("icons/frame.svg");
+                            title: "Full screen";
+                            help: "Snips the screen under the cursor at once";
+                            HotkeyField {
+                                y: 14px;
+                                keys: root.hk-fullscreen;
+                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
+                                changed(v) => { root.hotkey-changed("fullscreen", v); }
+                            }
+                        }
+                        Row {
+                            icon: @image-url("icons/redo.svg");
+                            title: "Repeat last area";
+                            help: "Snips the same area again";
+                            last: true;
+                            HotkeyField {
+                                y: 14px;
+                                keys: root.hk-repeat;
+                                record(t, c, a, s, m) => { root.record-hotkey(t, c, a, s, m) }
+                                changed(v) => { root.hotkey-changed("repeat", v); }
+                            }
+                        }
+                        Text {
+                            text: "Click a field and press the keys. Esc cancels, Backspace clears. In the snip overlay, right-click snips the full screen and middle-click repeats the last area.";
+                            font-size: 12px;
+                            color: Theme.dim-text;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if root.section == 3: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/folder.svg");
+                            title: "Save folder";
+                            help: root.save-dir;
+                            last: true;
+                            HorizontalLayout {
+                                spacing: 6px;
+                                SmallButton { y: 17px; label: "Change"; clicked => { root.browse-folder(); } }
+                                SmallButton { y: 17px; label: "Open"; clicked => { root.open-folder(); } }
+                            }
+                        }
+                        Text {
+                            text: "Snips go to the clipboard; only Save writes a file. Save asks for a name and remembers the last folder you used.";
+                            font-size: 12px;
+                            color: Theme.dim-text;
+                            wrap: word-wrap;
+                        }
+                    }
+                    if root.section == 4: VerticalLayout {
+                        Row {
+                            icon: @image-url("icons/power.svg");
+                            title: "Start with Windows";
+                            help: "Glint waits in the tray, using about 2 MB of memory";
+                            last: true;
+                            Toggle { y: 19px; on <=> root.start-with-windows; toggled(v) => { root.start-with-windows-changed(v); } }
+                        }
+                    }
+                    if root.section == 5: VerticalLayout {
+                        spacing: 10px;
+                        Text {
+                            text: "Glint " + root.version;
+                            font-size: 15px;
+                            font-weight: 600;
+                            color: Theme.text;
+                        }
+                        Text {
+                            text: "A small snipping tool for Windows. MIT licence.";
+                            font-size: 13px;
+                            color: Theme.dim-text;
+                        }
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+                            SmallButton { label: "Website"; clicked => { root.open-website(); } }
+                            SmallButton { label: "Open config.toml"; clicked => { root.open-file(); } }
+                        }
+                    }
+                    if root.note != "": Text {
+                        text: root.note;
+                        font-size: 12px;
+                        color: #ef4444;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}
