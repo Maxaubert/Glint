@@ -11,6 +11,8 @@ Decisions by Max on 2026-11-12: v1 is **core only**; editor UI is **Slint**.
 - **Window capture is removed** (no window mode, no window hotkey, a click without a drag clears the selection).
 - HDR: GDI already gives correct colours for desktop content on this PC, so the DXGI tone-mapped path
   is opt-in (`hdr_capture = true`), see `crates/glint-capture/src/lib.rs`.
+- Later the same day: hotkey **Win+Shift+S** (keyboard hook), overlay is a **plain crosshair** (no loupe, no
+  guide lines), and snips under the Wind magnifier use Wind's capture blink (Glint #5, Wind #565).
 - The rest of 1.3 below that mentions window mode or the old hotkeys is superseded by this list.
 
 ## 1. Spec

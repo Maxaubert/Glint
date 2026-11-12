@@ -387,10 +387,6 @@ impl Overlay {
             self.paint_size(&l, &t, dpi);
         }
         let drawing = matches!(self.drag, Drag::New { .. } | Drag::Handle { .. });
-        if self.sel.is_none() || drawing {
-            self.paint_guides(dpi);
-            self.paint_loupe(dpi);
-        }
         if !drawing {
             self.paint_hint(dpi);
         }
@@ -448,111 +444,6 @@ impl Overlay {
             l.y + gap
         };
         self.pill(&label, &font, l.x, y, dpi, &mon);
-    }
-
-    fn paint_guides(&self, dpi: u32) {
-        let mon = local_rect(self.monitor().rect, &self.vb);
-        let (x, y) = (self.cur.0 - self.vb.x, self.cur.1 - self.vb.y);
-        let c = rgb(200, 200, 210);
-        let gap = px(12, dpi);
-        // Dashed lines through the cursor, with a gap so the cross cursor stays clear.
-        let dash = px(6, dpi).max(2);
-        let mut i = mon.x;
-        while i < mon.right() {
-            if (i - x).abs() > gap {
-                gfx::fill(
-                    self.back.dc,
-                    &Rect::new(i, y, dash.min(mon.right() - i), 1),
-                    c,
-                );
-            }
-            i += dash * 2;
-        }
-        let mut j = mon.y;
-        while j < mon.bottom() {
-            if (j - y).abs() > gap {
-                gfx::fill(
-                    self.back.dc,
-                    &Rect::new(x, j, 1, dash.min(mon.bottom() - j)),
-                    c,
-                );
-            }
-            j += dash * 2;
-        }
-    }
-
-    fn paint_loupe(&self, dpi: u32) {
-        let dc = self.back.dc;
-        let cells = 15;
-        let cell = px(8, dpi).max(4);
-        let size = cells * cell;
-        let mon = local_rect(self.monitor().rect, &self.vb);
-        let (cx, cy) = (self.cur.0 - self.vb.x, self.cur.1 - self.vb.y);
-        let off = px(24, dpi);
-        let font = Font::ui(px(11, dpi));
-        let info_h = px(22, dpi);
-        let mut x = cx + off;
-        let mut y = cy + off;
-        if x + size > mon.right() {
-            x = cx - off - size;
-        }
-        if y + size + info_h > mon.bottom() {
-            y = cy - off - size - info_h;
-        }
-        let r = Rect::new(x, y, size, size);
-        unsafe {
-            SetStretchBltMode(dc, COLORONCOLOR);
-            let _ = StretchBlt(
-                dc,
-                r.x,
-                r.y,
-                size,
-                size,
-                Some(self.bright.dc),
-                cx - cells / 2,
-                cy - cells / 2,
-                cells,
-                cells,
-                SRCCOPY,
-            );
-        }
-        // Centre pixel marker and border.
-        let c = Rect::new(r.x + cells / 2 * cell, r.y + cells / 2 * cell, cell, cell);
-        gfx::frame(dc, &c, rgb(255, 255, 255), 1);
-        gfx::frame(dc, &r, rgb(255, 255, 255), 1);
-        gfx::frame(
-            dc,
-            &Rect::new(r.x - 1, r.y - 1, r.w + 2, r.h + 2),
-            rgb(0, 0, 0),
-            1,
-        );
-        // Coordinates and colour of the pixel under the cursor.
-        let fx =
-            (self.cur.0 - self.frame.origin.0).clamp(0, self.frame.image.width as i32 - 1) as u32;
-        let fy =
-            (self.cur.1 - self.frame.origin.1).clamp(0, self.frame.image.height as i32 - 1) as u32;
-        let p = self.frame.image.pixel(fx, fy);
-        let label = format!(
-            "{}, {}   #{:02X}{:02X}{:02X}",
-            self.cur.0, self.cur.1, p[0], p[1], p[2]
-        );
-        let info = Rect::new(r.x - 1, r.bottom() + 1, size + 2, info_h);
-        gfx::fill(dc, &info, rgb(24, 24, 28));
-        let sw = Rect::new(
-            info.x + px(6, dpi),
-            info.y + px(6, dpi),
-            info_h - px(12, dpi),
-            info_h - px(12, dpi),
-        );
-        gfx::fill(dc, &sw, rgb(p[0], p[1], p[2]));
-        gfx::frame(dc, &sw, rgb(255, 255, 255), 1);
-        let text_r = Rect::new(
-            sw.right() + px(4, dpi),
-            info.y,
-            info.right() - sw.right() - px(4, dpi),
-            info.h,
-        );
-        gfx::text(dc, &font, &label, &text_r, rgb(235, 235, 240));
     }
 
     fn paint_hint(&self, dpi: u32) {

@@ -14,7 +14,10 @@ Research (feature ideas, stack, capture APIs): `C:\Users\Admin\Documents\Claude\
 - Tests must never touch the user's clipboard or screen: `GLINT_TEST_DIR` makes daemon and editor write files
   instead; e2e runs on a hidden desktop with `GLINT_TEST_SYNTHETIC` (GDI cannot copy a hidden desktop).
 - Processes that post mouse messages in tests must be per-monitor DPI aware, or Windows rescales the coordinates.
-- No global hotkeys that apps use (Ctrl+Shift+S/W/F/R were rejected). Default is only Ctrl+Alt+S.
+- No global hotkeys that apps use (Ctrl+Shift+S/W/F/R were rejected). Default is Win+Shift+S, taken from
+  Windows with a low-level keyboard hook (`hook.rs`, re-installed every 30 s); other Win+ combos also use the hook.
+- Overlay is a plain crosshair: no loupe, no guide lines (owner, 2026-11-12).
+- Wind (owner's magnifier) zooms every capture API: `wind.rs` asks Wind for a capture blink (Wind #565).
 - No window capture (owner decision, 2026-11-12).
 
 ## Build, test, release

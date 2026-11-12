@@ -29,11 +29,11 @@
 
 | Snip | Preview | Editor |
 |---|---|---|
-| `Ctrl+Alt+S` opens the overlay (press again to close) | Card in the bottom-right corner | Arrow (drag the middle to curve it) |
+| `Win+Shift+S` opens the overlay (press again to close) | Card in the bottom-right corner | Arrow (drag the middle to curve it) |
 | Drag a box, then fine-tune with handles or arrow keys | **Click** to open the editor | Ellipse for circling things, rectangle |
 | **Right-click**: the whole screen under the mouse | **Drag** it into Discord, Slack, Explorer | Highlighter that keeps text readable |
 | **Middle-click**: the same area as last time | Save with one click | Text, numbered steps, pen |
-| Magnifier with pixel position and colour | Stacks when you snip quickly | Blur and pixelate (permanent) |
+| Works with the Wind magnifier: snip while zoomed, zoom out in the overlay | Stacks when you snip quickly | Blur and pixelate (permanent) |
 | Works across monitors with different scaling | Never steals focus | Crop, undo, copy, save PNG, JPEG or WebP |
 
 <img src="assets/overlay.png" width="600" alt="The snip overlay: dimmed screen, selected area with handles and its size">
@@ -48,7 +48,7 @@ The installer is not signed yet, so SmartScreen may warn on first run.
 
 | Where | Key or action | Does |
 |---|---|---|
-| Anywhere | `Ctrl+Alt+S` | Open the snip overlay |
+| Anywhere | `Win+Shift+S` | Open the snip overlay |
 | Overlay | Drag, then `Enter` or double-click | Snip the box |
 | Overlay | Right-click / middle-click | Full screen / last area |
 | Overlay | Arrows, `Shift`+arrows, `Ctrl` for 10 px | Move / resize the box |
@@ -72,7 +72,7 @@ capture_on_release = false   # snip as soon as you let go of the mouse
 hdr_capture = false          # re-capture HDR screens with tone mapping (for HDR games and video)
 
 [hotkeys]
-region = "Ctrl+Alt+S"
+region = "Win+Shift+S"   # Glint takes this from the Windows Snipping Tool
 fullscreen = ""              # optional, for example "Ctrl+Alt+F"
 repeat = ""                  # optional, for example "Ctrl+Alt+R"
 ```

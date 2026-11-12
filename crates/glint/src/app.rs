@@ -371,11 +371,15 @@ fn register_hotkeys(report: bool) {
         list.push((5, "PrintScreen".into()));
     }
     let mut failed = Vec::new();
+    let mut hooked = Vec::new();
     for (id, text) in list {
         if text.trim().is_empty() {
             continue; // turned off in the config
         }
         match parse_hotkey(&text) {
+            // Windows keeps most Win+ combinations (Win+Shift+S is the Snipping Tool), so those
+            // go through the keyboard hook instead of RegisterHotKey.
+            Ok(hk) if hk.mods & MOD_WIN != 0 => hooked.push((id, hk.mods, hk.vk)),
             Ok(hk) => {
                 let mut mods = MOD_NOREPEAT.0;
                 for (bit, m) in [
@@ -396,6 +400,9 @@ fn register_hotkeys(report: bool) {
             }
             Err(e) => failed.push(e),
         }
+    }
+    if let Err(e) = crate::hook::set(hwnd, &hooked) {
+        failed.push(e);
     }
     if !failed.is_empty() && report {
         notify("Glint: some hotkeys do not work", &failed.join(", "));
@@ -474,7 +481,15 @@ pub fn run_command(cmd: Command) {
     let frame = if std::env::var_os("GLINT_TEST_SYNTHETIC").is_some() {
         Ok(glint_capture::synthetic_desktop())
     } else {
-        glint_capture::capture_desktop(c.hdr_capture)
+        // While Wind magnifies, every capture API sees the zoomed screen: ask Wind for one
+        // unzoomed frame first (see wind.rs).
+        let blinked = crate::wind::start();
+        let f = glint_capture::capture_desktop(c.hdr_capture);
+        if blinked {
+            crate::wind::end();
+            log::line("captured under Wind with a capture blink");
+        }
+        f
     };
     let frame = match frame {
         Ok(f) => f,
@@ -649,6 +664,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_TIMER if wp.0 == TIMER_CONFIG => {
             check_config_changed();
+            // Every 30 s (the timer runs every 2 s): heal a keyboard hook Windows may have dropped.
+            TICKS.with(|t| {
+                let n = t.get() + 1;
+                t.set(n);
+                if n % 15 == 0 {
+                    crate::hook::refresh();
+                }
+            });
             LRESULT(0)
         }
         WM_DESTROY => {
@@ -664,6 +687,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 }
 
 thread_local! {
+    static TICKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     static PENDING: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
 }
 

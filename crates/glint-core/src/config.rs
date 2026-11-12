@@ -48,7 +48,7 @@ pub struct Hotkeys {
 impl Default for Hotkeys {
     fn default() -> Self {
         Self {
-            region: "Ctrl+Alt+S".into(),
+            region: "Win+Shift+S".into(),
             fullscreen: String::new(),
             repeat: String::new(),
         }
