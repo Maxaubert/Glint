@@ -1,7 +1,7 @@
 //! The daemon: a hidden window that owns the tray icon, the hotkeys and the capture flow.
 
 use crate::overlay::{self, Outcome};
-use crate::{gfx::wide, icon, log, system, toast};
+use crate::{gfx::wide, log, toast};
 use glint_capture::windows_list;
 use glint_core::config::{parse_hotkey, Config, MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN};
 use glint_core::geom::monitor_at;
@@ -17,15 +17,13 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_NOREPEAT,
 };
-use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
 pub const CLASS: PCWSTR = w!("GlintDaemon");
 pub const COPYDATA_TAG: usize = 0x474C_4E54; // "GLNT"
-const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_CONFIG: usize = 1;
 
-/// Something the daemon can be asked to do (hotkey, tray, or a second `glint.exe` launch).
+/// Something the daemon can be asked to do (a hotkey or a second `glint.exe` launch).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Region,
@@ -35,6 +33,8 @@ pub enum Command {
     Rect(Rect),
     OpenImage,
     PasteToEditor,
+    /// Opens the settings window (the Start menu entry while Glint runs).
+    Settings,
     Quit,
 }
 
@@ -48,6 +48,7 @@ impl Command {
             "repeat" => Command::Repeat,
             "open" => Command::OpenImage,
             "paste" => Command::PasteToEditor,
+            "settings" => Command::Settings,
             "quit" => Command::Quit,
             "rect" => {
                 let v: Vec<i32> = it.filter_map(|n| n.parse().ok()).collect();
@@ -66,7 +67,6 @@ struct App {
     config: Config,
     config_mtime: Option<SystemTime>,
     last_rect: Option<Rect>,
-    taskbar_created: u32,
     test_dir: Option<PathBuf>,
     captures: u32,
 }
@@ -138,12 +138,10 @@ pub fn run(first: Option<Command>) {
                 config,
                 config_mtime: mtime(&cfg_path),
                 last_rect: None,
-                taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
                 test_dir,
                 captures: 0,
             })
         });
-        add_tray(hwnd);
         register_hotkeys(true);
         SetTimer(Some(hwnd), TIMER_CONFIG, 2000, None);
         log::line(&format!("Glint {} started", env!("CARGO_PKG_VERSION")));
@@ -155,204 +153,28 @@ pub fn run(first: Option<Command>) {
             let _ = TranslateMessage(&msg);
             DispatchMessageW(&msg);
         }
-        remove_tray(hwnd);
         toast::close_all();
     }
 }
 
-// ---------------------------------------------------------------- tray
+// ---------------------------------------------------------------- notices
 
-fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
-    let mut nid = NOTIFYICONDATAW {
-        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-        hWnd: hwnd,
-        uID: 1,
-        ..Default::default()
-    };
-    let tip = wide("Glint: click to snip, right-click for more");
-    nid.szTip[..tip.len().min(127)].copy_from_slice(&tip[..tip.len().min(127)]);
-    nid
-}
-
-fn add_tray(hwnd: HWND) {
-    let mut nid = tray_data(hwnd);
-    nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-    nid.uCallbackMessage = WM_TRAY;
-    // The tray draws at the system scale: the small-icon size for that DPI (36 px at 225 %).
-    let size = unsafe {
-        windows::Win32::UI::HiDpi::GetSystemMetricsForDpi(
-            SM_CXSMICON,
-            windows::Win32::UI::HiDpi::GetDpiForSystem(),
-        )
-    }
-    .max(16) as u32;
-    nid.hIcon = icon::hicon(size).unwrap_or_default();
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_ADD, &nid);
-    }
-}
-
-fn remove_tray(hwnd: HWND) {
-    let nid = tray_data(hwnd);
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-    }
-}
-
-/// A tray balloon (shown as a Windows notification).
+/// A notice for the user (errors mostly). There is no tray icon (owner, 2026-11-12), so it is a
+/// message box on its own thread, which never blocks the hotkeys.
 pub fn notify(title: &str, text: &str) {
     log::line(&format!("{title}: {text}"));
-    let Some(hwnd) = with(|a| a.hwnd) else { return };
-    let mut nid = tray_data(hwnd);
-    nid.uFlags = NIF_INFO;
-    let t = wide(title);
-    let b = wide(text);
-    nid.szInfoTitle[..t.len().min(63)].copy_from_slice(&t[..t.len().min(63)]);
-    nid.szInfo[..b.len().min(255)].copy_from_slice(&b[..b.len().min(255)]);
-    nid.dwInfoFlags = NIIF_INFO;
-    unsafe {
-        let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+    if test_dir_set() {
+        return;
     }
-}
-
-const ID_REGION: usize = 10;
-const ID_FULL: usize = 12;
-const ID_OPEN: usize = 20;
-const ID_PASTE: usize = 21;
-const ID_FOLDER: usize = 22;
-const ID_PRTSC: usize = 30;
-const ID_STARTUP: usize = 31;
-const ID_SETTINGS: usize = 32;
-const ID_QUIT: usize = 40;
-
-fn show_menu(hwnd: HWND) {
-    let c = config();
-    let label = |name: &str, key: &str| format!("{name}\t{key}");
-    unsafe {
-        let Ok(menu) = CreatePopupMenu() else { return };
-        let add = |id: usize, text: &str, checked: bool| {
-            let t = wide(text);
-            let flags = if checked {
-                MF_STRING | MF_CHECKED
-            } else {
-                MF_STRING
-            };
-            let _ = AppendMenuW(menu, flags, id, PCWSTR(t.as_ptr()));
-        };
-        let sep = || {
-            let _ = AppendMenuW(menu, MF_SEPARATOR, 0, None);
-        };
-        add(ID_REGION, &label("Snip a region", &c.hotkeys.region), false);
-        add(
-            ID_FULL,
-            &label("Snip the full screen", &c.hotkeys.fullscreen),
-            false,
-        );
-        sep();
-        add(ID_OPEN, "Open an image...", false);
-        add(ID_PASTE, "Edit the image on the clipboard", false);
-        add(ID_FOLDER, "Open the screenshots folder", false);
-        sep();
-        add(
-            ID_PRTSC,
-            "Use the Print Screen key",
-            c.print_screen && !system::print_screen_opens_snipping_tool(),
-        );
-        add(
-            ID_STARTUP,
-            "Start with Windows",
-            system::starts_with_windows(),
-        );
-        add(ID_SETTINGS, "Settings", false);
-        sep();
-        add(ID_QUIT, "Quit Glint", false);
-        let mut p = POINT::default();
-        let _ = GetCursorPos(&mut p);
-        let _ = SetForegroundWindow(hwnd);
-        let id = TrackPopupMenu(
-            menu,
-            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN,
-            p.x,
-            p.y,
+    let (t, b) = (wide(title), wide(text));
+    std::thread::spawn(move || unsafe {
+        MessageBoxW(
             None,
-            hwnd,
-            None,
-        )
-        .0 as usize;
-        let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
-        let _ = DestroyMenu(menu);
-        match id {
-            ID_REGION => run_command(Command::Region),
-            ID_FULL => run_command(Command::Fullscreen),
-            ID_OPEN => run_command(Command::OpenImage),
-            ID_PASTE => run_command(Command::PasteToEditor),
-            ID_FOLDER => {
-                let dir = save_dir(&c);
-                let _ = std::fs::create_dir_all(&dir);
-                system::shell_open(&dir);
-            }
-            ID_PRTSC => toggle_print_screen(hwnd),
-            ID_STARTUP => {
-                let on = !system::starts_with_windows();
-                if let Err(e) = system::set_start_with_windows(on) {
-                    notify(
-                        "Glint",
-                        &format!("Could not change start with Windows: {e}"),
-                    );
-                }
-            }
-            ID_SETTINGS => {
-                // The settings window lives in the editor exe (no UI toolkit in this one).
-                let _ = std::process::Command::new(paths::sibling_exe("glint-editor.exe"))
-                    .arg("--settings")
-                    .spawn();
-            }
-            ID_QUIT => PostQuitMessage(0),
-            _ => {}
-        }
-    }
-}
-
-fn toggle_print_screen(hwnd: HWND) {
-    let mut c = config();
-    if !c.print_screen {
-        let text = wide(
-            "Glint will use the Print Screen key for a region snip.\n\n\
-             To do this it turns off the Windows setting \"Use the Print screen key to open screen capture\" \
-             (Settings > Accessibility > Keyboard). You can turn it back on here at any time.\n\nContinue?",
+            PCWSTR(b.as_ptr()),
+            PCWSTR(t.as_ptr()),
+            MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST,
         );
-        let answer = unsafe {
-            MessageBoxW(
-                Some(hwnd),
-                PCWSTR(text.as_ptr()),
-                w!("Glint: Print Screen key"),
-                MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND,
-            )
-        };
-        if answer != IDYES {
-            return;
-        }
-        if let Err(e) = system::set_print_screen_opens_snipping_tool(false) {
-            notify(
-                "Glint",
-                &format!("Could not change the Windows setting: {e}"),
-            );
-            return;
-        }
-        c.print_screen = true;
-    } else {
-        let _ = system::set_print_screen_opens_snipping_tool(true);
-        c.print_screen = false;
-    }
-    let path = paths::config_file();
-    if let Err(e) = c.save(&path) {
-        notify("Glint", &format!("Could not save settings: {e}"));
-    }
-    with(|a| {
-        a.config = c;
-        a.config_mtime = mtime(&path);
     });
-    register_hotkeys(true);
 }
 
 // ---------------------------------------------------------------- hotkeys
@@ -461,6 +283,10 @@ pub fn run_command(cmd: Command) {
         }
         Command::OpenImage => {
             spawn_editor(&["--open".into()]);
+            return;
+        }
+        Command::Settings => {
+            spawn_editor(&["--settings".into()]);
             return;
         }
         Command::PasteToEditor => {
@@ -694,14 +520,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
             LRESULT(0)
         }
-        WM_TRAY => {
-            match lp.0 as u32 {
-                WM_LBUTTONUP => run_command(Command::Region),
-                WM_RBUTTONUP | WM_CONTEXTMENU => show_menu(hwnd),
-                _ => {}
-            }
-            LRESULT(0)
-        }
         WM_COPYDATA => {
             let cds = &*(lp.0 as *const COPYDATASTRUCT);
             if cds.dwData == COPYDATA_TAG && !cds.lpData.is_null() {
@@ -738,10 +556,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         }
         WM_DESTROY => {
             PostQuitMessage(0);
-            LRESULT(0)
-        }
-        m if m != 0 && Some(m) == with(|a| a.taskbar_created) => {
-            add_tray(hwnd);
             LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wp, lp),

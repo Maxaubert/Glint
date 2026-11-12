@@ -109,6 +109,7 @@ pub fn open(ui: &EditorWindow) {
     let c = load();
     let s = ui.global::<SettingsState>();
     s.set_hdr_capture(c.hdr_capture);
+    s.set_print_screen(c.print_screen);
     s.set_capture_sound(c.capture_sound);
     s.set_preview_seconds(c.preview_seconds as i32);
     s.set_hk_region(keys(&c.hotkeys.region));
@@ -205,6 +206,31 @@ pub fn attach(ui: &EditorWindow, settings_only: bool) {
             ui.invoke_focus_canvas();
         });
     }
+    {
+        let weak = ui.as_weak();
+        s.on_print_screen_changed(move |on| {
+            let Some(ui) = weak.upgrade() else { return };
+            let s = ui.global::<SettingsState>();
+            // On: Glint takes the key, so Windows' own Print Screen snipping is turned off (and
+            // back on when this is switched off). The help text under the toggle says so.
+            if !test_mode() {
+                if let Err(e) = system::set_print_screen_opens_snipping_tool(!on) {
+                    s.set_print_screen(!on);
+                    s.set_note(format!("Could not change the Windows setting: {e}").into());
+                    return;
+                }
+            }
+            let mut c = load();
+            c.print_screen = on;
+            save(&s, &c);
+        });
+    }
+    s.on_quit_glint(|| {
+        // The daemon takes commands from a second glint.exe; Glint has no tray icon to quit from.
+        let _ = std::process::Command::new(paths::sibling_exe("glint.exe"))
+            .arg("quit")
+            .spawn();
+    });
     s.on_record_hotkey(|text, ctrl, alt, shift, win| record(&text, ctrl, alt, shift, win).into());
     {
         let weak = ui.as_weak();

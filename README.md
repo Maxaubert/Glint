@@ -18,7 +18,7 @@
 
 ## Why Glint
 
-- **Under 2 MB of RAM while it waits** in the tray. The editor is a separate program that starts only
+- **Under 2 MB of RAM while it waits** in the background, with no tray icon. The editor is a separate program that starts only
   when you open it and frees everything when you close it.
 - **Instant.** The screen is frozen the moment you press the hotkey (about 60 ms on a 4K screen), so
   menus and tooltips stay in the shot.
@@ -58,12 +58,12 @@ The installer is not signed yet, so SmartScreen may warn on first run.
 | Editor | `Ctrl+Z`, `Ctrl+Y`, `Delete` | Undo, redo, delete the selected shape |
 | Editor | `Ctrl+C`, `Ctrl+S`, `Enter` | Copy, save, copy and close |
 
-Right-click the tray icon to snip the full screen, open or paste an image into the editor, use the
-Print Screen key instead, or turn off start with Windows.
+Glint has no tray icon. Open **Glint** from the Start menu while it runs to get Settings; quit it
+from Settings > About.
 
 ## Settings
 
-Open **Settings** from the gear in the editor or from the tray menu. It follows Windows light and dark mode, and every change applies within a few seconds. The same settings live in `%APPDATA%\Glint\config.toml`:
+Open **Settings** from the gear in the editor or from Glint in the Start menu. It follows Windows light and dark mode, and every change applies within a few seconds. The same settings live in `%APPDATA%\Glint\config.toml`:
 
 ```toml
 preview_seconds = 6          # how long the preview card stays
@@ -90,7 +90,7 @@ makensis /DVERSION=0.1.0 installer\glint.nsi   # dist\Glint-Setup-x64-0.1.0.exe
 |---|---|
 | `glint-core` | Geometry, images, PNG and DIB codecs, clipboard, config |
 | `glint-capture` | GDI screen capture, optional DXGI HDR tone mapping, monitor layout |
-| `glint` | The tray daemon: hotkeys, overlay, preview card (plain Win32, no UI toolkit) |
+| `glint` | The background daemon: hotkeys, overlay, preview card (plain Win32, no UI toolkit, no tray icon) |
 | `glint-editor` | The editor (Slint UI, tiny-skia drawing) |
 
 Design notes and the roadmap of ideas: [docs/2026-11-12-v1-spec-and-plan.md](docs/2026-11-12-v1-spec-and-plan.md).

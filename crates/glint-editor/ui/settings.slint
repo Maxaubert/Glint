@@ -8,6 +8,7 @@ import { Theme } from "theme.slint";
 export global SettingsState {
     in-out property <int> section: 0;
     in-out property <bool> hdr-capture;
+    in-out property <bool> print-screen;
     in-out property <bool> capture-sound;
     in-out property <int> preview-seconds: 6;
     in-out property <[string]> hk-region;
@@ -25,6 +26,8 @@ export global SettingsState {
     // A toggle, stepper or choice changed: settings.rs reads the state and saves config.toml.
     callback changed();
     callback start-with-windows-changed(bool);
+    callback print-screen-changed(bool);
+    callback quit-glint();
     callback hotkey-changed(string, string);
     callback record-hotkey(string, bool, bool, bool, bool) -> string;
     callback browse-folder();
@@ -393,6 +396,12 @@ export component SettingsPanel inherits Rectangle {
                             }
                         }
                         Row {
+                            icon: @image-url("icons/printscreen.svg");
+                            title: "Print Screen key";
+                            help: "Snip with Print Screen. Turns off Windows' own Print Screen snipping while on";
+                            Toggle { y: 19px; on <=> SettingsState.print-screen; toggled(v) => { SettingsState.print-screen-changed(v); } }
+                        }
+                        Row {
                             icon: @image-url("icons/hdr.svg");
                             title: "HDR capture";
                             help: "Better colours on HDR screens (games, video), a little slower";
@@ -483,7 +492,9 @@ export component SettingsPanel inherits Rectangle {
                         }
                         HorizontalLayout {
                             alignment: start;
+                            spacing: 6px;
                             SmallButton { label: "Website"; clicked => { SettingsState.open-website(); } }
+                            SmallButton { label: "Quit Glint"; clicked => { SettingsState.quit-glint(); } }
                         }
                     }
                     if SettingsState.note != "": Text {
