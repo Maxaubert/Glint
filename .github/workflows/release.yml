@@ -28,7 +28,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     env:
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+      # Only whether signing is set up; the token itself goes to the SignPath step alone.
+      SIGNED: ${{ secrets.SIGNPATH_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
@@ -66,7 +67,8 @@ jobs:
           # NSIS is no longer on the windows-latest image: install it when missing.
           $nsis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           if (-not (Test-Path $nsis)) {
-            choco install nsis -y --no-progress
+            # Pinned to the version used locally; the Chocolatey package checks the download hash.
+            choco install nsis --version=3.13.0 -y --no-progress
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           & $nsis /V2 "/DVERSION=${{ steps.ver.outputs.version }}" installer\glint.nsi
@@ -75,14 +77,14 @@ jobs:
       # Optional: SignPath Foundation (free for open-source). Enrol the repo first, then add the
       # SIGNPATH_API_TOKEN secret and the SIGNPATH_ORG_ID / SIGNPATH_PROJECT vars.
       - name: Upload unsigned installer
-        if: env.SIGNPATH_API_TOKEN != ''
+        if: env.SIGNED == 'true'
         id: unsigned
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: unsigned-installer
           path: dist/*-Setup-*.exe
       - name: Sign with SignPath
-        if: env.SIGNPATH_API_TOKEN != ''
+        if: env.SIGNED == 'true'
         uses: signpath/github-action-submit-signing-request@ced31329c0317e779dad2eec2a7c3bb46ea1343e # v1
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -101,7 +103,7 @@ jobs:
           $tag = "v${{ steps.ver.outputs.version }}"
           $asset = (Get-ChildItem dist/*-Setup-*.exe | Select-Object -First 1).FullName
           gh release create $tag $asset --title $tag --generate-notes --latest
-          if ($env:SIGNPATH_API_TOKEN -eq "") {
+          if ($env:SIGNED -ne "true") {
             $body = gh release view $tag --json body -q .body
             gh release edit $tag --notes "$body`n`nThis installer is unsigned; SmartScreen will warn on first run."
           }
