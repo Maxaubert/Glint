@@ -23,6 +23,11 @@ static ENTRIES: Mutex<Vec<Entry>> = Mutex::new(Vec::new());
 static TARGET: AtomicIsize = AtomicIsize::new(0);
 static HOOK: AtomicIsize = AtomicIsize::new(0);
 static SWALLOW_UP: AtomicBool = AtomicBool::new(false);
+/// True while the snip overlay is open: Esc anywhere cancels it (see `guard_escape`).
+static ESC_GUARD: AtomicBool = AtomicBool::new(false);
+
+/// The WM_HOTKEY id the hook posts for Esc while the overlay is open.
+pub const ESC_ID: i32 = 0x7E5C;
 
 /// Hotkey modifiers currently held, as RegisterHotKey bits (Alt 1, Ctrl 2, Shift 4, Win 8).
 fn held() -> u32 {
@@ -69,6 +74,13 @@ unsafe extern "system" fn proc(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
         let injected = kb.flags.0 & LLKHF_INJECTED.0 != 0;
         if !injected {
             let down = wp.0 as u32 == WM_KEYDOWN || wp.0 as u32 == WM_SYSKEYDOWN;
+            if ESC_GUARD.load(Ordering::Relaxed) && kb.vkCode == VK_ESCAPE.0 as u32 {
+                if down {
+                    let hwnd = HWND(TARGET.load(Ordering::Relaxed) as *mut _);
+                    let _ = PostMessageW(Some(hwnd), WM_HOTKEY, WPARAM(ESC_ID as usize), LPARAM(0));
+                }
+                return LRESULT(1);
+            }
             let hit = ENTRIES
                 .lock()
                 .ok()
@@ -118,6 +130,37 @@ pub fn set(target: HWND, list: &[(i32, u32, u32)]) -> Result<(), String> {
         HOOK.store(h.0 as isize, Ordering::Relaxed);
     }
     Ok(())
+}
+
+/// While the snip overlay is open, Esc cancels it even when the overlay does not have the keyboard
+/// (with the Start menu open, Windows keeps the focus elsewhere and the overlay could not be left).
+/// Installs the hook for that time if no Win+ hotkey needs it.
+pub fn guard_escape(target: HWND, on: bool) {
+    ESC_GUARD.store(on, Ordering::Relaxed);
+    if on {
+        if TARGET.load(Ordering::Relaxed) == 0 {
+            TARGET.store(target.0 as isize, Ordering::Relaxed);
+        }
+        if HOOK.load(Ordering::Relaxed) == 0 {
+            if let Ok(hinst) = unsafe { GetModuleHandleW(None) } {
+                if let Ok(h) =
+                    unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, Some(proc), Some(hinst.into()), 0) }
+                {
+                    HOOK.store(h.0 as isize, Ordering::Relaxed);
+                }
+            }
+        }
+    } else {
+        let wanted = ENTRIES.lock().map(|e| !e.is_empty()).unwrap_or(true);
+        if !wanted {
+            let h = HOOK.swap(0, Ordering::Relaxed);
+            if h != 0 {
+                unsafe {
+                    let _ = UnhookWindowsHookEx(HHOOK(h as *mut _));
+                }
+            }
+        }
+    }
 }
 
 /// Re-installs the hook if one is wanted. Windows silently drops a low-level hook whose callback

@@ -62,6 +62,8 @@ struct Overlay {
     /// The snip hotkey as key names ("Win", "Shift", "S"): pressing it again cancels, so the hint
     /// shows it next to Esc, drawn from the user's own setting.
     close_keys: Vec<String>,
+    /// Ticks left of re-asserting top-most and the keyboard (see WM_TIMER).
+    assert_ticks: u32,
     done: Option<Outcome>,
 }
 
@@ -169,15 +171,19 @@ pub fn show(
                 .map(|k| k.trim().to_string())
                 .filter(|k| !k.is_empty())
                 .collect(),
+            assert_ticks: ASSERT_TICKS,
             done: None,
         })
     });
     ON_DONE.with(|d| *d.borrow_mut() = Some(Box::new(done)));
     unsafe {
         let _ = ShowWindow(hwnd, SW_SHOW);
-        let _ = SetForegroundWindow(hwnd);
-        let _ = SetFocus(Some(hwnd));
+        force_foreground(hwnd);
         let _ = UpdateWindow(hwnd);
+        // The taskbar and a closing Start menu can end up above a top-most window, and Windows may
+        // keep the keyboard elsewhere: for the first second, put the overlay back on top and take
+        // the keyboard again whenever it lost either.
+        let _ = SetTimer(Some(hwnd), ASSERT_TIMER, 80, None);
     }
     Ok(())
 }
@@ -566,6 +572,31 @@ enum Hint {
     Keys(Vec<String>),
 }
 
+const ASSERT_TIMER: usize = 7;
+const ASSERT_TICKS: u32 = 13;
+
+/// Brings `hwnd` to the front with the keyboard, also when another app has the foreground: joins
+/// that app's input queue for the moment, which Windows allows for a window the user just asked for.
+fn force_foreground(hwnd: HWND) {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    unsafe {
+        let fg = GetForegroundWindow();
+        let me = GetCurrentThreadId();
+        let other = if fg.is_invalid() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, None)
+        };
+        let joined = other != 0 && other != me && AttachThreadInput(me, other, true).as_bool();
+        let _ = BringWindowToTop(hwnd);
+        let _ = SetForegroundWindow(hwnd);
+        let _ = SetFocus(Some(hwnd));
+        if joined {
+            let _ = AttachThreadInput(me, other, false);
+        }
+    }
+}
+
 fn local_rect(r: Rect, vb: &Rect) -> Rect {
     r.translate(-vb.x, -vb.y)
 }
@@ -615,6 +646,25 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 Some(LRESULT(0))
             }
             WM_ERASEBKGND => Some(LRESULT(1)),
+            WM_TIMER if wp.0 == ASSERT_TIMER => {
+                let _ = SetWindowPos(
+                    hwnd,
+                    Some(HWND_TOPMOST),
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+                if GetForegroundWindow() != hwnd {
+                    force_foreground(hwnd);
+                }
+                o.assert_ticks = o.assert_ticks.saturating_sub(1);
+                if o.assert_ticks == 0 {
+                    let _ = KillTimer(Some(hwnd), ASSERT_TIMER);
+                }
+                Some(LRESULT(0))
+            }
             WM_LBUTTONDOWN => {
                 let (x, y) = o.to_virtual(lp);
                 o.mouse_down(x, y);

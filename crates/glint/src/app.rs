@@ -539,20 +539,33 @@ pub fn run_command(cmd: Command) {
         return;
     }
     let started = std::time::Instant::now();
+    // Start menu or Search open: the frozen picture already has it (so it can be snipped); close
+    // it now, or Windows keeps it, and the taskbar, above the overlay and keeps the keyboard.
+    close_shell_flyout();
     let res = overlay::show(
         frame,
         with(|a| a.last_rect).flatten(),
         c.capture_on_release,
         &c.hotkeys.region,
-        move |outcome| match outcome {
-            Outcome::Capture {
-                image,
-                rect,
-                monitor,
-            } => finish(image, rect, monitor, app_name),
-            Outcome::Cancel => log::line("cancelled"),
+        move |outcome| {
+            crate::hook::guard_escape(HWND::default(), false);
+            match outcome {
+                Outcome::Capture {
+                    image,
+                    rect,
+                    monitor,
+                } => finish(image, rect, monitor, app_name),
+                Outcome::Cancel => log::line("cancelled"),
+            }
         },
     );
+    // Esc cancels the overlay even when Windows keeps the keyboard elsewhere. Not in tests: the
+    // hook would see the owner's real keyboard.
+    if res.is_ok() && !test_dir_set() {
+        if let Some(h) = with(|a| a.hwnd) {
+            crate::hook::guard_escape(h, true);
+        }
+    }
     match res {
         Ok(()) => log::line(&format!(
             "overlay shown in {} ms",
@@ -649,6 +662,10 @@ pub fn open_editor(path: &Path, name: &str, save_dir: &Path, temp: bool) {
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     match msg {
         WM_HOTKEY => {
+            if wp.0 as i32 == crate::hook::ESC_ID {
+                overlay::cancel();
+                return LRESULT(0);
+            }
             if let Some(c) = hotkey_command(wp.0 as i32) {
                 run_command(c);
             }
@@ -711,6 +728,44 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
 thread_local! {
     static TICKS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
     static PENDING: RefCell<Vec<Command>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Closes the Start menu, Search or another shell flyout if it has the foreground (Esc, like a
+/// person would), so the snip overlay can come to the front.
+fn close_shell_flyout() {
+    let Some(app) = glint_capture::windows_list::foreground_app() else {
+        return;
+    };
+    let app = app.to_ascii_lowercase();
+    let shell = [
+        "startmenuexperiencehost",
+        "searchhost",
+        "searchapp",
+        "shellexperiencehost",
+    ];
+    if !shell.iter().any(|s| app.contains(s)) {
+        return;
+    }
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        VK_ESCAPE,
+    };
+    let key = |flags| INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_ESCAPE,
+                dwFlags: flags,
+                ..Default::default()
+            },
+        },
+    };
+    let inputs = [key(KEYBD_EVENT_FLAGS(0)), key(KEYEVENTF_KEYUP)];
+    unsafe {
+        SendInput(&inputs, std::mem::size_of::<INPUT>() as i32);
+    }
+    // Give the shell a moment to start hiding it.
+    std::thread::sleep(std::time::Duration::from_millis(60));
 }
 
 #[cfg(test)]
