@@ -64,6 +64,9 @@ struct Overlay {
     close_keys: Vec<String>,
     /// Ticks left of re-asserting top-most and the keyboard (see WM_TIMER).
     assert_ticks: u32,
+    /// The window that had the keyboard before the overlay: it gets it back on close. Otherwise
+    /// Windows activates the next window in z-order, often another app (owner report, 2026-11-13).
+    prev: Option<HWND>,
     done: Option<Outcome>,
 }
 
@@ -118,6 +121,7 @@ pub fn show(
         return Err("overlay already open".into());
     }
     register();
+    let prev = previous_foreground();
     let vb = virtual_bounds(&frame.monitors);
     let bright = Dib::from_image(&frame.image, 1.0).ok_or("out of memory (bright)")?;
     let dim = Dib::from_image(&frame.image, DIM).ok_or("out of memory (dim)")?;
@@ -172,6 +176,7 @@ pub fn show(
                 .filter(|k| !k.is_empty())
                 .collect(),
             assert_ticks: ASSERT_TICKS,
+            prev,
             done: None,
         })
     });
@@ -597,6 +602,24 @@ fn force_foreground(hwnd: HWND) {
     }
 }
 
+/// The window the user was in, unless it is a shell flyout (Start, Search) that is being closed.
+fn previous_foreground() -> Option<HWND> {
+    let fg = unsafe { GetForegroundWindow() };
+    if fg.is_invalid() {
+        return None;
+    }
+    let app = glint_capture::windows_list::foreground_app()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let shell = [
+        "startmenuexperiencehost",
+        "searchhost",
+        "searchapp",
+        "shellexperiencehost",
+    ];
+    (!shell.iter().any(|s| app.contains(s))).then_some(fg)
+}
+
 fn local_rect(r: Rect, vb: &Rect) -> Rect {
     r.translate(-vb.x, -vb.y)
 }
@@ -619,6 +642,10 @@ fn close_if_done() {
     let outcome = taken.map(|mut o| {
         let done = o.done.take().unwrap_or(Outcome::Cancel);
         unsafe {
+            // Hand the keyboard back first, while the overlay still has it (Windows allows that).
+            if let Some(p) = o.prev.filter(|&p| IsWindow(Some(p)).as_bool()) {
+                let _ = SetForegroundWindow(p);
+            }
             let _ = DestroyWindow(o.hwnd);
         }
         drop(o); // frees the frozen frame and bitmaps
