@@ -620,6 +620,16 @@ fn previous_foreground() -> Option<HWND> {
     (!shell.iter().any(|s| app.contains(s))).then_some(fg)
 }
 
+/// The app that owns `hwnd`, for the log.
+fn focus_owner(hwnd: HWND) -> String {
+    if hwnd.is_invalid() {
+        return "no window".into();
+    }
+    let mut pid = 0;
+    unsafe { GetWindowThreadProcessId(hwnd, Some(&mut pid)) };
+    glint_capture::windows_list::process_name(pid).unwrap_or_else(|| format!("pid {pid}"))
+}
+
 fn local_rect(r: Rect, vb: &Rect) -> Rect {
     r.translate(-vb.x, -vb.y)
 }
@@ -683,7 +693,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     0,
                     SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                 );
-                if GetForegroundWindow() != hwnd {
+                if GetForegroundWindow() != hwnd || GetFocus() != hwnd {
                     force_foreground(hwnd);
                 }
                 o.assert_ticks = o.assert_ticks.saturating_sub(1);
@@ -750,9 +760,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 Some(LRESULT(1))
             }
             WM_KILLFOCUS => {
-                // Another window took focus (for example a UAC prompt): give up quietly.
                 if o.done.is_none() {
-                    o.finish(None);
+                    let to = focus_owner(HWND(wp.0 as *mut _));
+                    if o.assert_ticks > 0 {
+                        // Just opened: Windows can move the focus for a moment while the overlay
+                        // takes it (it closed at once, so the hotkey seemed dead; owner report,
+                        // 2026-11-13). The assert timer takes it back.
+                        crate::log::line(&format!(
+                            "overlay lost focus early to {to}, taking it back"
+                        ));
+                    } else {
+                        // Another window took focus later (for example a UAC prompt): give up.
+                        crate::log::line(&format!("overlay lost focus to {to}, closing"));
+                        o.finish(None);
+                    }
                 }
                 Some(LRESULT(0))
             }
