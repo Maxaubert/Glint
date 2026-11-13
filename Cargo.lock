@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "glint"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "glint-capture",
  "glint-core",
@@ -1294,7 +1294,7 @@ dependencies = [
 
 [[package]]
 name = "glint-capture"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "glint-core",
  "windows",
@@ -1302,7 +1302,7 @@ dependencies = [
 
 [[package]]
 name = "glint-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "png 0.18.1",
  "serde",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "glint-editor"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "ab_glyph",
  "glint-core",
