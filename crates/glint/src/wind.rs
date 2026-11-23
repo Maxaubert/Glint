@@ -11,10 +11,22 @@
 //! pixels into the section. Reply 1 = the frame is there. Layout: a 32-byte header (magic 'GLBF',
 //! version 1, width, height, stride, format 1 = BGRA8 or 2 = RGBA16F scRGB, monitor x, y), then rows.
 //! Wind side: `src/transform/blink_capture.*` and WndProc in `src/core/main.cpp` (Wind #565).
+//!
+//! The section gets an explicit security descriptor: only its owner (the current user) has access,
+//! and a Medium mandatory label with no-read-up and no-write-up, so a Low integrity process cannot
+//! open or read the frame. If the name already exists, someone else created it first (name
+//! squatting), so Glint refuses to use it instead of reading pixels it did not ask for.
 
 use glint_core::Image;
 use windows::core::{w, HSTRING};
-use windows::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE, LPARAM, WPARAM};
+use windows::Win32::Foundation::{
+    CloseHandle, GetLastError, LocalFree, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL,
+    INVALID_HANDLE_VALUE, LPARAM, WPARAM,
+};
+use windows::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+};
+use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 use windows::Win32::System::Memory::{
     CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_READ, MEMORY_MAPPED_VIEW_ADDRESS,
     PAGE_READWRITE,
@@ -25,6 +37,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 const MAGIC: u32 = 0x4642_4C47;
 const HEADER: usize = 32;
+/// Owner only (generic all), protected DACL; Medium label, no read-up and no write-up.
+const SECTION_SDDL: windows::core::PCWSTR = w!("D:P(A;;GA;;;OW)S:(ML;;NWNR;;;ME)");
 
 /// The real (unzoomed) picture of the monitor Wind magnifies, and that monitor's origin.
 pub struct WindFrame {
@@ -54,15 +68,7 @@ pub fn grab(max_w: u32, max_h: u32) -> Option<WindFrame> {
         let pid = std::process::id();
         let size = HEADER as u64 + max_w as u64 * max_h as u64 * 8;
         let name = HSTRING::from(format!("Local\\Glint.CaptureFrame.{pid}"));
-        let section = CreateFileMappingW(
-            INVALID_HANDLE_VALUE,
-            None,
-            PAGE_READWRITE,
-            (size >> 32) as u32,
-            size as u32,
-            &name,
-        )
-        .ok()?;
+        let section = create_section(&name, size)?;
         let mut result = 0usize;
         // Wind's first blink creates its D3D device (~150 ms); later ones are fast.
         let sent = SendMessageTimeoutW(
@@ -84,7 +90,42 @@ pub fn grab(max_w: u32, max_h: u32) -> Option<WindFrame> {
     }
 }
 
-unsafe fn read(section: windows::Win32::Foundation::HANDLE, size: usize) -> Option<WindFrame> {
+/// Creates the frame section with `SECTION_SDDL`. None when the descriptor cannot be built, the
+/// mapping fails, or a section with this name already existed (not ours, so never trusted).
+unsafe fn create_section(name: &HSTRING, size: u64) -> Option<HANDLE> {
+    let mut sd = PSECURITY_DESCRIPTOR::default();
+    ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        SECTION_SDDL,
+        SDDL_REVISION_1,
+        &mut sd,
+        None,
+    )
+    .ok()?;
+    let attrs = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: sd.0,
+        bInheritHandle: false.into(),
+    };
+    let created = CreateFileMappingW(
+        INVALID_HANDLE_VALUE,
+        Some(&attrs),
+        PAGE_READWRITE,
+        (size >> 32) as u32,
+        size as u32,
+        name,
+    );
+    // Read right away: nothing may run between the call and GetLastError.
+    let existed = GetLastError() == ERROR_ALREADY_EXISTS;
+    let _ = LocalFree(Some(HLOCAL(sd.0)));
+    let section = created.ok()?;
+    if existed {
+        let _ = CloseHandle(section);
+        return None;
+    }
+    Some(section)
+}
+
+unsafe fn read(section: HANDLE, size: usize) -> Option<WindFrame> {
     let view: MEMORY_MAPPED_VIEW_ADDRESS = MapViewOfFile(section, FILE_MAP_READ, 0, 0, size);
     if view.Value.is_null() {
         return None;
